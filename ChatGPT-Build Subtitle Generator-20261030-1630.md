@@ -5,25 +5,32 @@
 
 ## Executive Summary
 
-This document specifies the complete architecture, engineering requirements, and user experience for a cross-platform application (Android, iOS, Windows, macOS, Linux) built with **Flutter**. The application empowers users to select long video files (up to 3+ hours) and produce broadcast-quality English subtitles in standard `.srt` and `.vtt` formats from spoken audio in Japanese, Chinese, Korean, and other world languages.
+This document specifies the complete production architecture, engineering requirements, and user experience for a cross-platform application (Android, iOS, Windows, macOS, Linux) built with **Flutter**. The application empowers users to select long video files (up to 3+ hours) and generate broadcast-quality English subtitles in standard SubRip (`.srt`) and WebVTT (`.vtt`) formats from spoken audio in Japanese, Chinese, Korean, and other world languages.
+
+### Technical Companion Documents (Single Source of Truth)
+To ensure maximum token efficiency and eliminate development ambiguity during coding, consult the companion technical documents:
+- [SCHEMA.md](file:///home/adityapatra/Documents/GitHub/subtitle_generator/SCHEMA.md): Complete Drift SQLite tables, SQLite FTS5 definitions, Firestore schemas, and Dart DTOs.
+- [IMPLEMENTATION_GUIDE.md](file:///home/adityapatra/Documents/GitHub/subtitle_generator/IMPLEMENTATION_GUIDE.md): Verified `pubspec.yaml`, VAD parsing algorithms, Stage 2 Translation prompts, CJK line-breaking rules, and agent guidelines.
 
 ### Core Philosophy: The Pragmatic Edge-Cloud Split with Lightweight Firebase Sync
-Previous specifications suffered from an impractical tension: they prohibited any local media processing while simultaneously demanding direct cloud API integration. Because cloud STT providers impose strict file-size limits (e.g., Groq's 25 MB cap) and uploading multi-gigabyte raw video files over consumer internet is slow, bandwidth-expensive, and prone to timeouts, this specification establishes an optimal **Smart Edge-Cloud Hybrid** model with **Firebase Cross-Device Cloud Sync**:
+Previous approaches either prohibited local processing (causing severe upload bandwidth bottlenecks and hitting provider file-size ceilings) or tried to run heavy neural networks on consumer phones (causing overheating, crashes, and slow execution). 
+
+This application establishes an optimal **Smart Edge-Cloud Hybrid** model with **Firebase Cross-Device Cloud Sync**:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
 │                                CLIENT DEVICE (EDGE)                             │
 │                  (Smartphones, Tablets, Laptops, Desktop Workstations)          │
 │                                                                                 │
-│  [Video File] ──► [Fast Audio Extraction] ──► [Audio Conditioning Filters]      │
+│  [Video File] ──► [Multi-Track Probe] ──► [Native Audio Demux & DSP Filters]   │
 │                            │                               │                    │
 │                            ▼                               ▼                    │
-│                  (Stream Demuxing / Lossless)    (16kHz Mono, EBU R128 Norm,    │
+│                    (ffprobe / AVAsset)           (16kHz Mono, EBU R128 Norm,    │
 │                                                   High-Pass Voice Filter)       │
 │                                                            │                    │
 │                                                            ▼                    │
-│  [Local Disk SRT] ◄── [Deterministic Subtitle] ◄── [VAD Silence Chunking]       │
-│   & In-App Editor       Formatter & CJK Engine       (No Mid-Sentence Cuts)     │
+│  [Local Disk SRT/VTT] ◄── [Deterministic Subtitle] ◄── [Silence-Aware VAD]      │
+│   & In-App Editor           Engine & CJK Rules          (Chunking + Hard-Cap)   │
 └────────────────────────────┬────────────────────────────────────────────────────┘
                              │ Small Voice Chunks (3-8 MB each)
                              ▼
@@ -40,9 +47,9 @@ Previous specifications suffered from an impractical tension: they prohibited an
 │                                    │                                            │
 │                                    ▼ (Raw Timestamped Segments)                 │
 │   ┌─────────────────────────────────────────────────────────────────────────┐   │
-│   │ 2. Context-Aware Neural Translation:                                    │   │
-│   │    • Google Gemini / Groq LLM / DeepL API                               │   │
-│   │    • Strict timestamp preservation & segment-id matching                │   │
+│   │ 2. Batched Context-Aware Neural Translation:                            │   │
+│   │    • Google Gemini 2.5 Flash / Groq LLM (Llama 3.3 70B)                 │   │
+│   │    • Strict 1:1 segment-count validation & timestamp preservation       │   │
 │   └─────────────────────────────────────────────────────────────────────────┘   │
 └────────────────────────────────────┬────────────────────────────────────────────┘
                                      │ Finished Lightweight SRT (~20-150 KB)
@@ -51,16 +58,16 @@ Previous specifications suffered from an impractical tension: they prohibited an
 │                       DEVELOPER'S FIREBASE CLOUD SYNC                           │
 │                      (Cross-Device Subtitle Library & Sync)                     │
 │                                                                                 │
-│   • Google Sign-In (Firebase Auth) identifies the user across devices           │
-│   • Generated SRT/VTT files & metadata stored under users/{userId}/subtitles    │
-│   • User can view, search, preview & download their subtitles on ANY device     │
+│   • Google Sign-In (Firebase Auth) gives users cross-device sync (or Guest)     │
+│   • Metadata stored in Firestore; raw .srt/.vtt files in Cloud Storage          │
+│   • Concurrency device locking & optimistic updatedAt conflict resolution       │
 │   • Zero media storage burden: Videos and audio NEVER touch Firebase            │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-- **Local Device (Edge)**: Performs lightweight media processing that everyday devices handle in seconds: demuxing audio tracks from video containers, applying audio speech enhancement filters, detecting speech pauses via Voice Activity Detection (VAD), slicing chunks at silence, formatting subtitles deterministically, and storing API keys securely.
+- **Local Device (Edge)**: Performs lightweight media processing that everyday devices handle in seconds: demuxing audio tracks from video containers, applying audio speech enhancement filters, detecting speech pauses via Voice Activity Detection (VAD), slicing chunks at silence with hard-cap limits, formatting subtitles deterministically, and storing API keys securely.
 - **User Cloud APIs (BYOK)**: Performs heavy neural network inference requiring server-grade GPUs: Whisper Large-v3 Speech-to-Text and contextual Large Language Model translation using the user's personal API keys.
-- **Developer's Firebase Backend (Sync Only)**: Houses user authentication (Google Sign-In) and a synchronized cloud repository of generated `.srt`/`.vtt` files and job history. Because subtitle text files are tiny (2 KB to 200 KB), thousands of users can synchronize their library across devices without incurring meaningful storage or bandwidth costs for the developer.
+- **Developer's Firebase Backend (Sync Only)**: Houses optional user authentication (Google Sign-In) and a synchronized cloud repository of generated `.srt`/`.vtt` files and job history. Because subtitle text files are tiny (2 KB to 200 KB), thousands of users can synchronize their library across devices without incurring meaningful storage or bandwidth costs for the developer.
 
 ---
 
@@ -69,12 +76,13 @@ Previous specifications suffered from an impractical tension: they prohibited an
 | Processing Stage | Where It Runs | Technology / Service | Why This Location Is Optimal |
 |---|---|---|---|
 | **Video File Selection & Validation** | Local Edge | Flutter File Picker / Native OS Dialogs | Zero bandwidth; instant file inspection. |
-| **Audio Demuxing & Extraction** | Local Edge | Native OS Media Engine / Lightweight FFmpeg / Libav | Takes 5–20 seconds for a 3-hour video. Avoids uploading multi-gigabyte video files. |
+| **Multi-Audio Track Probe** | Local Edge | `ffprobe` / `AVAssetTrack` inspection | Identifies languages and codecs; lets user pick commentary vs main audio. |
+| **Audio Demuxing & Extraction** | Local Edge | Native OS Media Engine / Lightweight FFmpeg | Takes 5–20 seconds for a 3-hour video. Avoids uploading multi-gigabyte video files. |
 | **Speech Audio Filtering** | Local Edge | FFmpeg Audio Filters / Native DSP | High-pass filter (removes rumble), loudness normalization, noise-floor reduction. |
-| **Silence-Aware Chunking (VAD)** | Local Edge | Silero VAD / FFmpeg `silencedetect` | Slices audio only during natural pauses (>400ms), eliminating cut-off words and split phonemes. |
+| **Silence-Aware Chunking (VAD)** | Local Edge | Silero VAD / FFmpeg `silencedetect` + Hard Cap | Slices audio only during natural pauses (>400ms), eliminating cut-off words. |
 | **Speech-to-Text (STT) Transcription** | User Cloud (BYOK) | Groq Whisper Large-v3 / Gemini / Deepgram Nova-3 | Heavy AI model requiring high-end data-center GPUs. Fast and accurate. |
 | **Language & Punctuation Cleanup** | Local Edge | Deterministic Dart CJK Engine | Instant regex & rule-based normalization for Japanese, Chinese, and Korean. |
-| **Timestamped English Translation** | User Cloud (BYOK) | Gemini 2.5 Flash / Groq LLM | Preserves exact segment timestamps while providing natural, idiom-aware English. |
+| **Batched English Translation** | User Cloud (BYOK) | Gemini 2.5 Flash / Groq LLM | Preserves exact segment timestamps while providing natural, idiom-aware English. |
 | **Subtitle Cue Generation & Wrapping** | Local Edge | Deterministic Dart Engine | Applies strict BBC / Netflix subtitle rules (reading speed, lines, character count). |
 | **Local SRT / VTT Save & Editor** | Local Edge | Flutter UI + Local File System | Immediate offline playback, editing, and file saving beside the original video. |
 | **Cross-Device Subtitle Cloud Sync** | Developer Firebase | Firebase Auth + Firestore / Cloud Storage | Syncs lightweight SRT files (`2–150 KB`) across all user devices by `userId`. |
@@ -82,7 +90,7 @@ Previous specifications suffered from an impractical tension: they prohibited an
 
 ---
 
-## 2. Bring Your Own Key (BYOK) Architecture & Firebase Sync Model
+## 2. Bring Your Own Key (BYOK) Architecture & Zero-Backend Invariant
 
 ### 2.1 The Two Operational Halves
 1. **AI Processing Quota (BYOK - 100% User Owned)**:
@@ -96,15 +104,7 @@ Previous specifications suffered from an impractical tension: they prohibited an
      2. Subtitle file storage & history (`.srt` / `.vtt` text files).
    - **Crucial Rule**: Videos, raw audio tracks, and user API keys **NEVER** get uploaded to Firebase. Only the resulting tiny subtitle text files and job metadata are synchronized.
 
-### 2.2 Why Firebase Subtitle Sync Is Extremely Efficient for the Developer
-- A 3-hour movie subtitle file contains roughly 1,500 to 2,500 subtitle cues, which takes only **~80 KB to 180 KB** of UTF-8 plain text.
-- Firebase's free Spark plan includes:
-  - **1 GB** of Cloud Storage (~10,000+ full-length subtitle files).
-  - **1 GB** of Firestore database storage.
-  - **50,000** document reads and **20,000** document writes per day.
-- Storing users' generated subtitles provides immense user delight (multi-device access) at virtually **$0 cost** to the developer.
-
-### 2.3 Supported Providers & Onboarding Experience
+### 2.2 Supported Providers & Onboarding Experience
 Users configure one, two, or all three providers via an intuitive in-app onboarding wizard with direct dashboard links, step-by-step screenshots, and one-tap test validation:
 
 | Provider | Supported Model | Best For | Typical Free Tier / Cost |
@@ -123,331 +123,571 @@ Before saving any key to secure storage, the application makes a minimal, non-me
 
 ## 3. Firebase Architecture: Cross-Device Subtitle Library
 
-### 3.1 Authentication
-- Users sign in using **Google Sign-In** backed by **Firebase Authentication**.
-- Every user is assigned a permanent, unique `uid`.
-- If a user opens the app on an Android phone, transcribes a video, and later logs into the app on their Windows laptop or iPad with the same Google account, all their previously generated subtitles immediately appear in their **Cloud Subtitle Library**.
+### 3.1 Authentication & Guest Mode
+
+#### 3.1.1 Google Sign-In (Optional — Cloud Sync Mode)
+Users may optionally sign in with Google via Firebase Authentication.
+- On sign-in, the user receives a permanent, stable `uid`.
+- Cloud sync is enabled only when signed in.
+- If a user generates subtitles on Android and later logs into the same Google account on Windows or iPad, their full subtitle library is immediately available on the new device.
+
+#### 3.1.2 Guest / Offline-Only Mode (Always Available)
+**Firebase sign-in is NEVER a requirement to use the application.**
+A user who declines sign-in, is in a region where Google services are blocked (e.g., mainland China), or whose Firebase auth fails transiently must still be able to:
+- Configure BYOK provider credentials.
+- Select video files and extract audio.
+- Run the full transcription + translation pipeline.
+- Export and save `.srt` / `.vtt` files locally.
+- View and search their local history (SQLite only).
+
+Cloud sync features (cross-device library, background upload) are cleanly paused in guest mode. The UI displays an unobtrusive banner:
+> "Sign in with Google to sync your subtitles across all your devices."
+
+**State transitions:**
+- **Guest → Signed-in**: The client automatically enqueues all locally-stored, unsynced subtitles and synchronizes them to Firebase in the background.
+- **Signed-in → Sign-out**: Cloud sync is paused. Local data is preserved. API keys in the hardware keyring are NOT deleted on sign-out (they are device-local credentials, not account credentials). The user is prompted:
+  > "Signing out will pause cloud sync. Your local subtitles and API keys will remain on this device. Do you also want to clear your local subtitle history?" `[Clear History]` `[Keep History]` `[Cancel]`
+
+#### 3.1.3 External Revocation Handling
+If the user revokes Google Sign-In permissions externally (via myaccount.google.com), the Firebase SDK returns `user-token-revoked` or `user-disabled`. The client must:
+1. Catch `FirebaseAuthException`.
+2. Transition smoothly to Guest / Offline-Only Mode.
+3. Show a non-blocking snackbar: *"Your Google session has expired. Sign in again to re-enable cloud sync."*
+4. All local subtitle files and local SQLite records remain completely intact.
+
+---
 
 ### 3.2 Firestore Data Schema
-All records are sandboxed strictly under the user's `uid`:
 
+#### 3.2.1 Collection Path
 ```text
 /users/{userId}/subtitles/{subtitleId}
 ```
+All records are sandboxed strictly under the authenticated user's `uid`. No cross-user access is permitted.
 
-#### Document Fields:
+#### 3.2.2 Subtitle Metadata Document (Firestore)
+**CANONICAL ARCHITECTURAL RULE:** The raw subtitle file content (`.srt` / `.vtt`) is **ALWAYS stored in Firebase Cloud Storage**. The Firestore document stores **ONLY metadata and Storage reference paths**. There is no inline `srtContent` field. This eliminates the split-brain state and race conditions entirely.
+
 ```json
 {
   "id": "c8a4128f-79bc-4321-9e20-7b2434fa0912",
   "userId": "firebase_auth_uid_12345",
-  "title": "Tokyo_Vlog_Episode_01.mp4",
+  "title": "Tokyo_Vlog_Episode_01",
+  "originalFilename": "Tokyo_Vlog_Episode_01.mp4",
   "sourceLanguage": "ja",
   "targetLanguage": "en",
   "durationSeconds": 1420.5,
   "providerUsed": "groq_whisper_large_v3",
+  "translationModel": "gemini_2_5_flash",
   "cueCount": 438,
   "fileSizeBytes": 45120,
-  "srtContent": "1\n00:00:02,100 --> 00:00:04,500\nHello and welcome to Tokyo!\n...",
-  "storageDownloadUrl": "https://firebasestorage.googleapis.com/v0/b/.../subtitles/c8a4128f.srt",
+  "storagePath": "users/firebase_auth_uid_12345/subtitles/c8a4128f.srt",
+  "storagePathVtt": "users/firebase_auth_uid_12345/subtitles/c8a4128f.vtt",
+  "jobStatus": "COMPLETED",
+  "processingDeviceId": null,
+  "isDirty": false,
+  "isDeleted": false,
+  "schemaVersion": 1,
   "createdAt": "2026-10-30T16:50:00Z",
-  "updatedAt": "2026-10-30T16:50:00Z"
+  "updatedAt": "2026-10-30T16:52:00Z"
 }
 ```
-*(For subtitles under 800 KB, `srtContent` can be stored directly in Firestore for instant query retrieval. For larger files, the raw file is saved in Firebase Cloud Storage at `users/{userId}/subtitles/{subtitleId}.srt` and linked via `storageDownloadUrl`).*
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` | UUID v4 generated on creating device. Used as Firestore document ID and Storage filename stem. |
+| `userId` | `string` | Firebase Auth UID. Must match authenticated user. |
+| `title` | `string` | User-editable display name (defaults to video filename without extension). |
+| `originalFilename` | `string` | Immutable original source video filename. |
+| `sourceLanguage` | `string` | BCP-47 language tag (e.g., `ja`, `zh-Hans`, `ko`). |
+| `targetLanguage` | `string` | BCP-47 language tag of output (defaults to `en`). |
+| `durationSeconds` | `float` | Total audio duration processed in seconds. |
+| `providerUsed` | `string` | Enum: `groq_whisper_large_v3`, `gemini_2_5_transcribe`, `deepgram_nova_3`. |
+| `translationModel` | `string` | Enum: `gemini_2_5_flash`, `groq_llama_3_3_70b`. `null` if source was English. |
+| `cueCount` | `int` | Total subtitle cues in final SRT. |
+| `fileSizeBytes` | `int` | Size of `.srt` file in bytes. |
+| `storagePath` | `string` | Cloud Storage path for `.srt` file. |
+| `storagePathVtt` | `string` | Cloud Storage path for `.vtt` file (`null` if not exported). |
+| `jobStatus` | `string` | See §10 Job State Machine. |
+| `processingDeviceId` | `string` | Device UUID when actively processing; `null` when idle/completed. |
+| `isDirty` | `bool` | `true` if local edits have not yet uploaded to Cloud Storage. |
+| `isDeleted` | `bool` | Soft-delete flag. Query filters out `isDeleted == true`. |
+| `schemaVersion` | `int` | Schema version counter for future client migrations. |
+| `createdAt` | `timestamp` | ISO 8601 UTC. Set once on creation. |
+| `updatedAt` | `timestamp` | ISO 8601 UTC. Updated on every write for optimistic concurrency control. |
+
+---
 
 ### 3.3 Firebase Security Rules
-To ensure total privacy and isolation, users can read and write only their own records:
 
-#### Firestore Rules:
+#### 3.3.1 Firestore Rules
 ```javascript
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     match /users/{userId}/subtitles/{subtitleId} {
-      allow read, write, delete: if request.auth != null && request.auth.uid == userId;
+      allow get, list: if request.auth != null
+                       && request.auth.uid == userId
+                       && resource.data.isDeleted == false;
+
+      allow create: if request.auth != null
+                    && request.auth.uid == userId
+                    && request.resource.data.userId == userId
+                    && request.resource.data.isDeleted == false;
+
+      allow update: if request.auth != null
+                    && request.auth.uid == userId
+                    && request.resource.data.userId == userId
+                    && request.resource.data.createdAt == resource.data.createdAt;
+
+      allow delete: if false; // Hard deletes prohibited. Soft delete via isDeleted: true.
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }
 ```
 
-#### Cloud Storage Rules:
+#### 3.3.2 Cloud Storage Rules
 ```javascript
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
     match /users/{userId}/subtitles/{fileName} {
-      allow read, write, delete: if request.auth != null && request.auth.uid == userId;
+      allow read, write: if request.auth != null
+                         && request.auth.uid == userId;
+
+      allow delete: if request.auth != null
+                    && request.auth.uid == userId;
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
     }
   }
 }
 ```
 
-### 3.4 Multi-Device User Experience
-1. **Automatic Background Sync**: Once an SRT is generated and saved locally, the app asynchronously pushes the subtitle document to Firebase.
-2. **Offline-First Synchronization**: If the user is offline or has spotty internet when generation finishes, the SRT is saved in the local SQLite database (`drift`). As soon as an internet connection is re-established, the sync worker pushes it to Firebase.
-3. **Cross-Device Actions**:
-   - Preview full subtitles with timestamps in-app.
-   - One-tap "Download SRT / VTT" to the local device storage.
-   - One-tap "Copy to Clipboard".
-   - Search across past subtitles by video title, keywords, or date.
-   - Delete from cloud and all synced devices.
+---
+
+### 3.4 Cross-Device Sync Behavior
+
+1. **Upload Sequence**:
+   - Subtitle generation finishes; `.srt` and `.vtt` are saved to local filesystem and local SQLite.
+   - If signed in and online:
+     1. Upload `.srt` to `users/{uid}/subtitles/{id}.srt` in Cloud Storage.
+     2. Upload `.vtt` to `users/{uid}/subtitles/{id}.vtt` in Cloud Storage (if enabled).
+     3. Write metadata document to Firestore.
+     4. Mark local SQLite record as `isDirty = false`.
+   - If offline: Enqueue sync operation in local SQLite `sync_queue`. Sync triggers automatically when internet is detected.
+2. **Download / On-Demand Access**:
+   - When a user logs in on a new device, the app queries Firestore metadata only (lightweight, fast).
+   - The full `.srt` file is fetched from Cloud Storage **on-demand** (lazy loaded) only when the user taps preview, edit, or download. Once downloaded, it caches in local SQLite.
 
 ---
 
-## 4. Client-Side Audio Extraction & Pre-Processing Pipeline
+### 3.5 Multi-Device Concurrency & Locking
 
-### 4.1 Why Client-Side Audio Extraction Is Essential
-A 3-hour 1080p/4K video typically weighs between **2 GB and 15 GB**. Attempting to upload this video directly to cloud transcription APIs causes:
-- Immediate rejection by Groq (hard limit: 25 MB per request).
-- Extreme mobile data consumption and battery drain.
-- Severe risk of network timeouts and connection drops.
+**Problem:** User starts a 3-hour job on their phone, then opens their laptop, sees the job, and hits "Resume", causing duplicate API uploads and burning double quota.
 
-By extracting the audio stream locally and transcoding it to an optimized voice format, a 3-hour video is reduced to just **~35 MB to 45 MB** of pristine, speech-optimized audio. This extraction takes **under 30 seconds** on modern smartphones and laptops because the video frames are completely ignored and only the audio stream is processed.
+**Solution: Firestore Optimistic Device Lock**
+- When a device starts audio processing or transcription, it executes a Firestore transaction writing:
+  `{ processingDeviceId: "<this_device_id>", jobStatus: "TRANSCRIBING" }`.
+- If `processingDeviceId != null && processingDeviceId != this_device_id`, the job is locked.
+- UI on conflict:
+  > *"This job is already actively processing on another device (Device ID: ...abc). Processing simultaneously will burn duplicate quota. [Wait] [Force Take Over]"*
+- On job finish, cancellation, or failure: `processingDeviceId` is cleared to `null`.
 
-### 4.2 Audio Conditioning & Voice Enhancement Filters
-Raw video audio often contains background hiss, air conditioning rumble, mic bumps, or inconsistent volume levels. The local pre-processor applies a tailored digital signal processing (DSP) filtergraph:
+---
 
+### 3.6 Edit Conflict Resolution (Optimistic Concurrency)
+
+- When saving edits back to Cloud Storage, the client checks the remote Firestore document's `updatedAt`.
+- If `remote.updatedAt > local.loadedAt` (another device edited the subtitle in the meantime), the UI displays:
+  > *"This subtitle was modified on another device at [time]. [Keep Remote Version] [Overwrite with My Edits]"*
+- Debounce: Local keystrokes update local SQLite instantly. Cloud Storage upload occurs only on explicit "Save to Cloud" or upon navigating away from the editor.
+
+---
+
+### 3.7 Deletion & Account Management
+
+- **Soft Delete**: Deleting a subtitle sets `isDeleted = true` in Firestore and deletes the `.srt`/`.vtt` files from Cloud Storage. Real-time snapshot listeners immediately remove the item from all active devices.
+- **Account Deletion (GDPR)**: Available in Settings → Account → "Delete My Account". On re-authentication, recursively deletes all user files in Cloud Storage, all Firestore documents under `/users/{uid}/**`, deletes the Firebase Auth record, and purges local SQLite and hardware keyrings.
+
+---
+
+### 3.8 Local Search Strategy (SQLite FTS5)
+
+Firestore does not provide scalable, zero-cost full-text search. The application implements search locally:
+- Full-text search over subtitle text cues runs via an SQLite `fts5` virtual table on locally cached subtitles.
+- Searches execute in under 10ms with zero network requests.
+- Cloud-only subtitles (metadata loaded, but SRT not yet downloaded) are searchable by title, language, and date. Tapping a cloud result downloads and indexes the cues locally.
+
+---
+
+## 4. Cross-Platform Media Engine
+
+### 4.1 Platform Architecture & Abstract Media Engine
+
+To resolve `ffmpeg_kit_flutter_full` abandonment on Apple platforms, the app defines a unified Dart abstraction (`MediaEngine`) implemented via platform-native backends:
+
+```dart
+abstract class MediaEngine {
+  Future<MediaInfo> probe(String filePath);
+  Future<AudioExtractionResult> extractAudio({
+    required String inputPath,
+    required String outputPath,
+    required int audioStreamIndex,
+    required AudioExtractionConfig config,
+  });
+  Future<List<String>> splitAudioAtTimestamps({
+    required String inputPath,
+    required List<double> splitPointsSeconds,
+    required String outputDir,
+  });
+}
 ```
-[Raw Audio Track]
-       │
-       ▼
- [High-Pass Filter (80 Hz)]   ──► Removes low-frequency wind, handling noise, HVAC hum
-       │
-       ▼
- [Voice Bandpass / EQ]       ──► Gently enhances human vocal frequencies (300 Hz - 3400 Hz)
-       │
-       ▼
- [EBU R128 Loudness Norm]    ──► Normalizes speech volume (target -16 LUFS, true peak -1.5 dB)
-       │
-       ▼
- [Resample to 16 kHz Mono]   ──► Perfect sampling rate for Whisper and Nova models
-       │
-       ▼
- [Export: 32 kbps Opus/AAC]  ──► Ultra-compact, studio-clarity voice track
-```
 
-#### Standard FFmpeg Audio Filter Command:
+### 4.2 Platform-by-Platform Engine Implementations
+
+| Platform | Primary Audio Extractor | Probe Tool | DSP Filterpass |
+|---|---|---|---|
+| **Android (API 24+)** | `ffmpeg_kit_flutter_full` (community fork) | `ffmpeg_kit` ffprobe | `ffmpeg_kit` filtergraph |
+| **iOS (14.0+)** | Native `AVFoundation` via Platform Channel | Bundled minimal static `ffprobe` | Bundled minimal static `ffmpeg` |
+| **macOS (11.0+)** | Native `AVFoundation` via Platform Channel | Bundled static `ffprobe` | Bundled static `ffmpeg` |
+| **Windows (10/11)** | Bundled static `ffmpeg.exe` via `Process.run()` | Bundled static `ffmpeg.exe` | Bundled static `ffmpeg.exe` |
+| **Linux (Ubuntu/Arch)**| System `ffmpeg` via `Process.run()` | System `ffprobe` | System `ffmpeg` |
+
+#### Linux Startup Check:
+On Linux, the app checks `which ffmpeg` and `which ffprobe` at launch. If missing, it displays a blocking dialog instructing the user to install them via their package manager (`sudo apt install ffmpeg` / `sudo pacman -S ffmpeg`).
+
+---
+
+### 4.3 Multi-Audio Track Probe & Selection
+
+Many movie rips contain multiple audio tracks (e.g. Japanese 5.1, English dub, Director's Commentary). Relying on default FFmpeg stream selection often extracts the wrong track.
+
+#### Probe Inspection:
 ```bash
-ffmpeg -i input_video.mp4 -vn \
+ffprobe -v quiet -print_format json -show_streams -select_streams a "input_video.mkv"
+```
+
+#### Track Selection UI:
+- **Single Track**: Auto-selected with an info pill: *"Audio: Japanese (AAC Stereo)"*.
+- **Multiple Tracks**: Displays a track selector sheet showing language, codec, channel count, and bitrate.
+- **Recommendation Logic**:
+  - Matches track `tags.language` against user's chosen source language.
+  - Defaults to highest bitrate track if multiple matches exist.
+- **Explicit Extraction**: Every extraction command passes `-map 0:a:<selected_index>` to guarantee extraction of the correct track.
+
+---
+
+### 4.4 Temporary File Lifecycle & Storage Cleanup
+
+A 3-hour video generates ~100–150 MB of temporary audio during processing.
+
+#### Pre-Extraction Storage Check:
+```dart
+final requiredBytes = estimatedAudioSize * 2.2;
+final availableBytes = await getAvailableDiskSpace();
+if (availableBytes < requiredBytes) {
+  throw InsufficientStorageException(requiredBytes, availableBytes);
+}
+```
+
+#### Deletion Lifecycle:
+1. **Immediate Chunk Cleanup**: As soon as Chunk $N$ STT response is validated and stored in SQLite, `{jobId}_chunk_N.mp3` is deleted immediately.
+2. **Post-Transcription Cleanup**: Once all chunks are transcribed, the primary extracted audio file `{jobId}_full.mp3` is deleted.
+3. **Cancellation / Error**: On user cancellation, all temporary files matching `{jobId}_*` are deleted instantly.
+4. **App Launch Cleanup**: On every app start, the temp directory is scanned; any orphaned audio files older than 24 hours or not associated with an active SQLite job are purged.
+
+---
+
+## 5. Audio Conditioning & Silence-Aware VAD Chunking
+
+### 5.1 Speech Audio Conditioning Pipeline
+Before audio is submitted to any cloud model, it passes through a calibrated DSP filtergraph to maximize speech intelligibility:
+
+```bash
+ffmpeg -i input_video.mp4 -vn -map 0:a:0 \
   -af "highpass=f=80,lowpass=f=8000,loudnorm=I=-16:TP=-1.5:LRA=11,aformat=sample_rates=16000:channel_layouts=mono" \
-  -c:a libopus -b:a 32k -application voip \
-  output_audio.opus
+  -c:a libmp3lame -b:a 48k output_audio.mp3
 ```
-*(On systems where Opus is not supported by a specific provider endpoint, fallback to `-c:a libmp3lame -b:a 48k output_audio.mp3` or 16-bit PCM WAV for individual short chunks).*
 
-### 4.3 Silence-Aware VAD Smart Chunking
-Previous implementations failed by cutting audio at arbitrary time boundaries (e.g., exactly at 20:00.000), slicing words in half, corrupting phonemes, and causing hallucinated repetitions at chunk borders.
-
-This application uses **Local Voice Activity Detection (VAD) / Silence Detection**:
-1. Scan for natural silence intervals (`silencedetect=noise=-30dB:d=0.5`).
-2. Target chunk duration: **10 to 15 minutes** (safely under 6 MB per chunk, well below all provider limits).
-3. Chunk split points are snapped to the closest natural pause within a flexible window (e.g., between minute 10:00 and minute 12:00).
-4. **Zero word clipping**: Audio is cut only when nobody is speaking.
-5. **Exact global offset tracking**: Each chunk stores its precise `global_start_time_seconds`.
+- **High-Pass (80 Hz)**: Removes HVAC hum, desk bumps, wind, and mic handling rumble.
+- **Low-Pass (8000 Hz)**: Eliminates high-frequency hiss outside human vocal ranges.
+- **Loudness Normalization (EBU R128)**: Normalizes volume to target -16 LUFS (True Peak -1.5 dB), ensuring whispers and loud shouts are transcribed with equal accuracy.
+- **16 kHz Mono**: The exact native sampling rate of Whisper and Deepgram Nova models. Reduces file size by 50% vs stereo.
 
 ---
 
-## 5. Two-Stage Decoupled Transcription & Translation Pipeline
+### 5.2 Silence-Aware VAD Chunking & Hard-Cap Failsafe
 
-To guarantee that subtitle timings are 100% authentic and that users never waste API quota, the workflow is strictly divided into two decoupled stages:
+Arbitrary time cutting (e.g. slicing exactly at 15:00.000) slices words in half and causes hallucinations.
 
 ```
-┌────────────────────────────────────────────────────────────────────────┐
-│                   STAGE 1: ORIGINAL-LANGUAGE TRANSCRIPTION             │
-│                                                                        │
-│   Pre-Processed Audio Chunks ──► Cloud STT Provider (Groq/Deepgram)     │
-│                                                │                       │
-│                                                ▼                       │
-│                         High-Fidelity Original Transcript              │
-│                       (Original Japanese / Chinese / Korean)           │
-│                             + Ground-Truth Timestamps                  │
-│                                                │                       │
-│                                                ▼                       │
-│                       Persisted Locally in SQLite Database             │
-└────────────────────────────────────────────────┬───────────────────────┘
-                                                 │
-                                                 ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│                   STAGE 2: CONTEXT-AWARE NEURAL TRANSLATION            │
-│                                                                        │
-│   Original Transcript Segments ──► LLM Translation Engine (Gemini/Groq)│
-│                                                │                       │
-│                                                ▼                       │
-│                          English Translation Text                      │
-│                    (Strict 1:1 Preservation of Segment IDs)            │
-│                                                │                       │
-│                                                ▼                       │
-│                      Deterministic Subtitle Cues (SRT/VTT)             │
-│                                                │                       │
-│                                                ▼                       │
-│                  Local Disk Export + Firebase Cross-Device Sync        │
-└────────────────────────────────────────────────────────────────────────┘
+00:00                Target: 12m                   24m
+  ├─── Speech ───[Pause: 600ms]─── Speech ──────────┤
+                       ▲
+                  Split Here!
 ```
 
-### 5.1 Why Decoupling Is Mandatory
-1. **Never Re-Transcribe to Fix a Translation**: If the user wants a different translation style (e.g., formal vs. colloquial, or anime-specific honorifics), they simply re-run Stage 2. The audio never needs to be re-uploaded or re-transcribed.
-2. **No Invented Timestamps**: Large Language Models (LLMs) must **never** be asked to invent or guess timestamps. Timestamps come exclusively from the acoustic speech model in Stage 1.
-3. **Structured JSON Interchange**:
+1. **VAD Scan**: Scan audio using FFmpeg `silencedetect=noise=-30dB:d=0.4` or Silero VAD.
+2. **Flexible Window**: Target chunk length is 12 minutes. The splitter searches for silence pauses (>400ms) between minute 10:00 and minute 14:00.
+3. **No-Silence Fallback (Continuous Speech / Music)**:
+   - If no silence period $\ge 400\text{ms}$ is found within the window (e.g. uninterrupted concert commentary or wall-to-wall music), the splitter falls back to cutting at the exact 12:00 mark with a 2-second overlap, logging a non-critical warning.
+4. **20 MB Hard-Cap Failsafe**:
+   - Regardless of VAD results, every generated chunk file is checked before upload:
+     `if (chunkFile.lengthInBytes > 20 * 1024 * 1024) splitChunkInHalf(chunkFile);`
+   - This ensures **zero risk** of ever exceeding Groq's strict 25 MB API limit.
+5. **Timestamp Offset Tracking**:
+   - Each chunk retains its global offset: $\text{GlobalTime} = \text{ChunkStartTime} + \text{LocalCueTime}$.
+
+---
+
+## 6. Two-Stage Decoupled Transcription & Translation Pipeline
+
+### 6.1 Why Decoupling Is Mandatory
+1. **Never Re-Transcribe to Fix Translation**: If a user wants to alter translation nuance (formal vs informal, British vs American English), they simply re-run Stage 2. The audio is never re-uploaded or re-transcribed.
+2. **Zero Invented Timestamps**: Large Language Models must **never** invent timestamps. Timestamps come exclusively from acoustic models in Stage 1.
+
+---
+
+### 6.2 Translation Provider Selection & Fallback Logic
+
+Users configure which translation model to use in Settings → Translation Engine:
+
+| Transcription Provider Used | Default Translation Engine | Fallback Translation Option |
+|---|---|---|
+| **Google Gemini** | Gemini 2.5 Flash | Groq Llama 3.3 70B Versatile |
+| **Groq Whisper** | Groq Llama 3.3 70B Versatile | Gemini 2.5 Flash |
+| **Deepgram Nova-3** | Gemini 2.5 Flash *(requires Gemini key)* | Groq Llama 3.3 70B *(requires Groq key)* |
+
+**Deepgram Edge Case Handled**: Deepgram Nova-3 is a dedicated transcription engine without built-in LLM translation. If a user connects only Deepgram and requests English translation, the UI prompts:
+> *"Deepgram provides transcription only. To translate to English, please connect a free Gemini or Groq API key in Settings, or export original-language subtitles."*
+
+---
+
+### 6.3 Batched Translation & Segment-Count Validation
+
+For a 3-hour video with ~2,500 segments, sending all cues in a single prompt causes token exhaustion and silent segment truncation.
+
+1. **Batch Slicing**: Transcript segments are grouped into batches of **60 to 80 segments** (~1,500 tokens of input).
+2. **Context Window**: Each batch includes the final 2 translated segments of the previous batch as read-only context to preserve narrative continuity.
+3. **Structured Schema**:
 ```json
-[
-  {
-    "id": 104,
-    "start": 142.350,
-    "end": 145.820,
-    "source_text": "東京タワーの近くにあるカフェに行きましょう。",
-    "target_text": "Let's go to that cafe near Tokyo Tower."
-  }
-]
+{
+  "segments": [
+    {"id": 101, "translation": "Good morning everyone."},
+    {"id": 102, "translation": "Today we will explore Tokyo Tower."}
+  ]
+}
+```
+4. **Strict Segment-Count Validation**:
+   - If the LLM returns 58 translations for 60 input segments, the client rejects the response, splits the batch into two smaller 30-segment sub-batches, and retries.
+   - Timestamps are matched strictly by `id`: $\text{Cue}[i].\text{start}$ and $\text{Cue}[i].\text{end}$ are copied from Stage 1. The LLM only supplies the translated text.
+
+---
+
+## 7. Language-Specific Tokenization & Subtitle Standards
+
+### 7.1 CJK Linguistic Formatting Rules
+
+#### Japanese (日本語)
+- Segment at natural particle boundaries (`は`, `が`, `を`, `に`, `で`, `と`, `へ`, `から`, `まで`) and punctuation (`、`, `。`).
+- **Zero Injected Spaces**: Never insert western whitespace between Kanji and Kana characters.
+- Honorifics (`-san`, `-kun`, `-chan`, `-sama`) remain attached to preceding names.
+
+#### Chinese (中文)
+- Segment by semantic breath-groups rather than individual characters.
+- Full-width punctuation (`，`, `。`, `！`, `？`) marks natural cue boundaries.
+- Four-character idioms (成语 / Chengyu) are never split across lines.
+
+#### Korean (한국어)
+- Eojeol (어절) whitespace spacing is preserved intact.
+- Agglutinative particles (조사: `은/는`, `이/가`, `을/를`) remain glued to nouns.
+
+---
+
+### 7.2 Subtitle Format Specifications (SRT & WebVTT)
+
+The engine formats subtitles to Netflix / BBC broadcast standards:
+- **Max Characters per Line (CPL)**: 37 to 42 characters.
+- **Max Lines per Cue**: 2 lines maximum.
+- **Reading Speed (CPS)**: Target 15–17 characters per second (hard cap: 20 CPS).
+- **Duration**: Minimum 1.0s, maximum 7.0s.
+- **Inter-cue Gap**: 2 frames (~66–80 ms) to prevent visual flash fatigue.
+
+#### SubRip (.srt) Example:
+```srt
+1
+00:01:23,450 --> 00:01:26,200
+Good morning everyone.
+Welcome to Tokyo!
 ```
 
----
+#### WebVTT (.vtt) Example:
+```vtt
+WEBVTT - Generated by SubtitleGenerator
 
-## 6. Language-Specific Tokenization & CJK Formatting
-
-Previous projects produced broken subtitles for East Asian languages because naive spaces were inserted or characters were split indiscriminately. The subtitle engine implements dedicated linguistic rules:
-
-### 6.1 Japanese (日本語)
-- **Natural Boundary Recognition**: Japanese does not use whitespace. The engine segments along grammatical particle boundaries (`は`, `が`, `を`, `に`, `で`, `と`, `へ`, `から`, `まで`) and punctuation marks (`、`, `。`, `！`, `？`).
-- **No Injected Spaces**: Never inject western spaces between Kanji and Kana characters.
-- **Honorifics and Idioms**: Honorific suffixes (`-san`, `-kun`, `-chan`, `-sama`, `-sensei`) and compound nouns are never split across line breaks.
-
-### 6.2 Chinese (中文 - Simplified & Traditional)
-- **Semantic Chunking**: Group text by meaning phrases rather than splitting per character.
-- **Punctuation Rules**: Full-width Chinese punctuation (`，`, `。`, `！`, `？`, `：`) dictates natural pause points.
-- **Four-Character Idioms (成语 / Chengyu)**: Must always be preserved on a single line.
-
-### 6.3 Korean (한국어)
-- **Eojeol (어절) Preservation**: Korean uses spaces between grammatical word blocks (eojeol). Preserve original spacing intact.
-- **Particle Attachment**: Josa (particles such as `은/는`, `이/가`, `을/를`) must stay attached to their preceding noun.
-
-### 6.4 English Subtitle Formatting Standards (Netflix / BBC Compliant)
-The final English subtitle renderer enforces standard broadcast readability criteria:
-- **Maximum characters per line (CPL)**: 37 to 42 characters.
-- **Maximum lines per cue**: 2 lines maximum (never 3+ lines or paragraphs).
-- **Reading speed (CPS)**: Target 15–17 characters per second; hard cap at 20 CPS.
-- **Minimum cue duration**: 1.0 second (to prevent flicker).
-- **Maximum cue duration**: 7.0 seconds.
-- **Inter-cue gap**: 2 frames (approx. 66–80 ms) to allow eye resting between subtitles.
-- **Smart line breaking**: Breaks occur after punctuation, before conjunctions (`and`, `but`, `because`), or between major syntactic clauses.
+1
+00:01:23.450 --> 00:01:26.200
+Good morning everyone.
+Welcome to Tokyo!
+```
+*(WebVTT uses period decimal separators instead of commas, and includes the mandatory `WEBVTT` header).*
 
 ---
 
-## 7. Technical Specifications: Provider by Provider
+## 8. Provider Technical Specifications
 
-### 7.1 Groq Whisper (`whisper-large-v3`)
-- **API Endpoint**: `POST https://api.groq.com/openai/v1/audio/transcriptions`
-- **Supported Formats**: `mp3`, `mp4`, `mpeg`, `mpga`, `m4a`, `wav`, `webm`
-- **File Size Limit**: 25 MB per request *(effortlessly satisfied by 10-15 min audio chunks)*
-- **Parameters Required**:
+### 8.1 Groq Whisper (`whisper-large-v3`)
+- **Endpoint**: `POST https://api.groq.com/openai/v1/audio/transcriptions`
+- **Headers**: `Authorization: Bearer <GROQ_API_KEY>`
+- **Body**: `multipart/form-data`
+  - `file`: audio chunk binary (`audio/mpeg`)
   - `model`: `whisper-large-v3`
   - `response_format`: `verbose_json`
-  - `timestamp_granularities[]`: `word` and `segment`
-  - `language`: `ja`, `zh`, `ko`, or empty for auto-detection
-- **Translation Strategy**: Use Groq for Stage 1 (STT). For Stage 2, either pass the structured transcript to `llama-3.3-70b-versatile` on Groq or use Gemini 2.5 Flash for nuanced translation.
-
-### 7.2 Google Gemini (`gemini-2.5-flash` / `gemini-3.5-transcribe`)
-- **API Endpoint**: Gemini REST API v1beta / Google GenAI SDK
-- **Ingestion Mode**:
-  - Short audio chunks: Inline base64 audio data.
-  - Large audio: Direct upload via Google AI Studio File API (`POST https://generativelanguage.googleapis.com/upload/v1beta/files`).
-- **Capabilities**: Exceptional multilingual comprehension, cultural nuance, context-aware idiom translation, and direct JSON schema structured output.
-
-### 7.3 Deepgram Nova-3 (`nova-3` Multilingual)
-- **API Endpoint**: `POST https://api.deepgram.com/v1/listen`
-- **Ingestion Mode**: Direct binary audio streaming with header `Content-Type: audio/opus` (or `audio/mp3`).
-- **Parameters Required**:
-  - `model=nova-3`
-  - `smart_format=true`
-  - `diarize=true` *(optional speaker labeling)*
-  - `utterances=true`
-  - `words=true`
-- **Response**: Ultra-high precision word-level timestamps, speaker indices, and confidence scores.
+  - `timestamp_granularities[]`: `segment`, `word`
+  - `temperature`: `0.0`
+- **Rate Limit Handling**: Exponential backoff on HTTP 429 (`delay = min(base * 2^attempt, 30s)`).
 
 ---
 
-## 8. Application Architecture & Tech Stack
+### 8.2 Google Gemini (`gemini-2.5-flash` / `gemini-3.5-transcribe`)
+- **Endpoint**: `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=<GEMINI_KEY>`
+- **Ingestion Threshold**:
+  - Chunks $< 15\text{MB}$: Transmitted as inline base64 data in `inlineData` object (`mimeType: "audio/mp3"`).
+  - Chunks $\ge 15\text{MB}$: Uploaded via Gemini Resumable File API:
+    `POST https://generativelanguage.googleapis.com/upload/v1beta/files?key=<KEY>`
+- **48-Hour File API Lifecycle**: Files uploaded to Gemini's File API automatically delete after 48 hours. The client explicitly calls `DELETE https://generativelanguage.googleapis.com/v1beta/files/<file_id>` immediately after transcription finishes.
+- **Structured Schema Parameter**:
+  ```json
+  "generationConfig": {
+    "responseMimeType": "application/json",
+    "responseSchema": {
+      "type": "ARRAY",
+      "items": {
+        "type": "OBJECT",
+        "properties": {
+          "start": {"type": "NUMBER"},
+          "end": {"type": "NUMBER"},
+          "text": {"type": "STRING"}
+        },
+        "required": ["start", "end", "text"]
+      }
+    }
+  }
+  ```
 
-### 8.1 Cross-Platform Stack
-- **Framework**: Flutter 3.x (Dart 3.x)
-- **Supported Targets**: Android (API 24+), iOS (14.0+), Windows (10/11), macOS (11.0+), Linux (Ubuntu 20.04+, Fedora, Arch)
-- **State Management**: `flutter_riverpod` (v2.x) with code generation for immutable, observable state
-- **Authentication**: `firebase_auth` + `google_sign_in`
-- **Cloud Subtitle Sync**: `cloud_firestore` + `firebase_storage`
-- **Media Engine**: Native OS Media framework + `ffmpeg_kit_flutter_full` / desktop FFmpeg binaries
-- **Secure Key Storage**: `flutter_secure_storage` with platform hardware security modules
-- **Local Database**: `drift` (SQLite) for job queues, transcripts, cache, and history
-- **Networking**: `dio` with custom retry interceptors, upload progress streams, and rate-limit backoff
+---
 
-### 8.2 Directory Structure
-```text
-lib/
-├── core/
-│   ├── constants/             # API routes, default subtitle parameters
-│   ├── network/               # Dio client, retry policies, error mapping
-│   ├── security/              # Secure key store, hardware token management
-│   ├── storage/               # Drift SQLite database, local file manager
-│   └── utils/                 # Timecode formatting, string sanitization
-│
-├── features/
-│   ├── auth/                  # Google Sign-In & Firebase Auth state
-│   ├── cloud_sync/            # Firebase Firestore & Storage sync coordinator
-│   ├── media/                 # File picker, video demuxer, audio extractor
-│   ├── audio_processing/      # DSP filters, VAD silence detector, audio chunker
-│   ├── providers/             # Provider implementations
-│   │   ├── base_provider.dart
-│   │   ├── groq_whisper_provider.dart
-│   │   ├── gemini_provider.dart
-│   │   └── deepgram_provider.dart
-│   ├── transcription/         # Stage 1 coordinator, chunk offset mapper
-│   ├── translation/           # Stage 2 LLM translation engine
-│   ├── subtitles/             # CJK tokenizer, Netflix/BBC rule engine, SRT/VTT serializer
-│   ├── editor/                # In-app subtitle editor and preview player
-│   └── settings/              # BYOK key configuration, cost estimator, preferences
-│
-└── presentation/
-    ├── screens/               # Home, File Pick, Progress, Cloud Library, Editor, Settings
-    ├── widgets/               # Chunk progress bar, waveform, provider status cards
-    └── theme/                 # Modern Material 3 dark/light adaptive theme
+### 8.3 Deepgram Nova-3 (`nova-3` Multilingual)
+- **Endpoint**: `POST https://api.deepgram.com/v1/listen`
+- **Headers**:
+  - `Authorization: Token <DEEPGRAM_KEY>`
+  - `Content-Type: audio/mp3`
+- **Query Parameters**:
+  `model=nova-3&smart_format=true&utterances=true&punctuate=true&diarize=true`
+- **Synchronous Execution Guarantee**:
+  - To avoid requiring developer callback webhooks, all Deepgram calls run in **synchronous request mode**.
+  - Chunk lengths are kept to $\le 15$ minutes, keeping HTTP response times within standard 60-second client timeouts.
+
+---
+
+### 8.4 Secure Credential Storage & Linux Secret Service Check
+
+API keys are stored in hardware-backed platform vaults:
+- **Android**: Android Keystore with `EncryptedSharedPreferences`.
+- **iOS / macOS**: Apple Keychain (`kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`).
+- **Windows**: Windows Credential Manager / DPAPI.
+- **Linux Check**:
+  - `flutter_secure_storage` requires `libsecret` and a running DBus Secret Service daemon (e.g. `gnome-keyring`, `ksecretservice`).
+  - At Linux startup, the app checks if Secret Service is available.
+  - If unavailable (e.g. minimal WM or headless desktop), the app displays a security notice and offers an AES-GCM encrypted file store protected by a user-chosen master password.
+
+---
+
+## 9. Subtitle Editor & In-App Preview
+
+The application includes a built-in interactive subtitle editor:
+
+```
+┌──────────────────────────────────────────────────────────┐
+│  00:01:23,450 ──► 00:01:26,200                [Delete]   │
+│  ┌────────────────────────────────────────────────────┐  │
+│  │ Good morning everyone. Welcome to Tokyo!           │  │
+│  └────────────────────────────────────────────────────┘  │
+│  [ -100ms ] [ +100ms ]      [ Split Cue ] [ Merge Next ] │
+└──────────────────────────────────────────────────────────┘
 ```
 
----
-
-## 9. Resilience, Recovery & Error Handling
-
-### 9.1 Chunk-Level Fault Tolerance
-- **Independent Chunk Retries**: If chunk 4 fails due to a network glitch or temporary 429 rate limit, only chunk 4 is retried with exponential backoff (`delay = min(base * 2^attempt, 30s)`). Completed chunks (1, 2, 3) are safely cached in SQLite and never repeated.
-- **Process Resumption**: If the user closes the app or the OS terminates it during a 3-hour job, reopening the app instantly detects the partial job and prompts: *"Resume processing from chunk 5 of 12?"*
-- **Offline Safe**: Once transcripts are downloaded, all formatting, editing, and exporting functions work 100% offline. Local changes sync to Firebase automatically once reconnected.
-
-### 9.2 Quota & Cost Transparency
-- Before processing begins, the app calculates total audio duration and displays an honest estimate:
-  > *"Estimated audio duration: 2 hrs 45 mins (11 chunks of ~15 min).*  
-  > *Selected Provider: Groq (Whisper Large-v3).*  
-  > *Estimated API cost: \$0.00 (within free tier) or approx. \$0.18 at standard rates."*
-- If a provider returns a `429 Too Many Requests` or `insufficient_quota` error, the app displays the exact provider error code along with actionable guidance (e.g. wait time or link to billing console). The app **never** silently swaps providers or spends a different quota without explicit user consent.
+- **In-Place Editing**: Tapping any cue allows text editing with instant CPL and reading speed warnings.
+- **Timestamp Nudge**: One-tap `+100ms` / `-100ms` nudge buttons for start and end times.
+- **Split & Merge**: Split a long subtitle at cursor position, or merge two adjacent cues.
+- **Save Debounce**: Edits persist to local SQLite immediately. Cloud sync executes on explicit "Save to Cloud" or screen exit.
 
 ---
 
-## 10. Comprehensive Testing & Acceptance Criteria
+## 10. Formal Job State Machine & Resilience
 
-To be declared production-ready, the implementation must pass the following benchmark test suite:
+```
+[ PENDING ]
+     │ User taps Start
+     ▼
+[ EXTRACTING_AUDIO ] ──► (Probe audio tracks, demux selected track, apply DSP filters)
+     │
+     ▼
+[ CHUNKING ]         ──► (Silence-aware VAD scan + 20MB hard-cap enforcement)
+     │
+     ▼
+[ TRANSCRIBING ]     ──► (Upload chunks to BYOK STT; retry failed chunks independently)
+     │
+     ▼
+[ TRANSLATING ]      ──► (Batched LLM translation; 1:1 segment validation)
+     │
+     ▼
+[ FORMATTING ]       ──► (CJK rules, CPL limits, generate .srt and .vtt)
+     │
+     ▼
+[ SYNCING ]          ──► (Upload .srt/.vtt to Cloud Storage; write Firestore doc)
+     │
+     ▼
+[ COMPLETED ]        ──► (All temporary audio files purged; ready for export)
+```
+
+- **Resumption**: If an interrupted job is reopened, SQLite state indicates completed chunks; the pipeline resumes at the exact unfinished chunk.
+- **Cost Estimation Formula**:
+  - Groq Whisper: $\text{Minutes} \times \$0.00185/\text{min}$ (or \$0 on free tier).
+  - Deepgram Nova-3: $\text{Minutes} \times \$0.0043/\text{min}$.
+  - Gemini 2.5 Flash Translation: $\text{EstimatedTokens} \times (\$0.075 / 1\text{M input tokens})$.
+
+---
+
+## 11. Operating System Background Execution
+
+### 11.1 Android (Doze Mode & Foreground Service)
+- Long jobs run inside an Android **Foreground Service** with a persistent ongoing notification:
+  *"Generating subtitles: Transcribing chunk 4 of 12 (33%)..."*
+- Permissions: `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_DATA_SYNC`, `WAKE_LOCK`.
+
+### 11.2 iOS (Background Tasks & Lifecycle)
+- Registers a `BGProcessingTask` with identifier `com.subtitlegenerator.process`.
+- The UI shows an informational badge: *"For fastest processing on long videos, keep the app open or connected to power."*
+- If iOS suspends the app, `applicationWillResignActive` cleanly pauses the active chunk upload, saves the state to SQLite, and resumes upon reactivation.
+
+---
+
+## 12. Testing & Acceptance Matrix
 
 | Test Case | Scenario | Acceptance Criteria |
 |---|---|---|
-| **Test 1: 5-Minute Anime Clip (Japanese)** | High-speed dialogue, background music, sound effects | Clean particle segmentation (`は`, `が`), no character spacing errors, zero invented timestamps. |
-| **Test 2: 30-Minute Tech Lecture (Mandarin)** | Technical terminology, mixed English/Chinese terms | Accurate traditional/simplified characters, Chengyu preserved, natural sentence wrapping. |
-| **Test 3: 45-Minute Drama Episode (Korean)** | Emotional speech, soft whispering, overlapping lines | Accurate eojeol spacing, correct sentence endings, speaker tags preserved if enabled. |
-| **Test 4: Full 3-Hour Movie / Stream** | 180 minutes, multiple scene changes, varied volume | Audio extracted in <45s locally; all chunks processed; zero drift between 00:05:00 and 02:55:00; correct SRT output. |
-| **Test 5: Cross-Device Firebase Sync** | Generate SRT on Android; log in on Windows PC | Windows app displays the newly created subtitle within 2 seconds; can preview and download .srt locally. |
-| **Test 6: Offline & Resumption** | Wi-Fi toggled off mid-job; app swiped away during chunk 6 | App recovers seamlessly; resumes chunk 6 without re-transcribing chunks 1–5; syncs to Firebase once online. |
-
----
-
-## 11. Summary of Architectural Advantages
-
-By shifting audio extraction, voice enhancement filters, and silence detection to the local device while keeping heavy speech-to-text inference in the cloud and syncing subtitles to Firebase:
-1. **Network Payload Reduced by 99%**: A 4 GB video upload becomes an ultra-compact ~35 MB audio upload.
-2. **Groq 25 MB Limit Conquered**: Every chunk is guaranteed to be under 6 MB, making Groq's high-speed Whisper Large-v3 completely reliable.
-3. **Seamless Multi-Device Experience**: Generated SRT files are automatically backed up to Firebase under the user's ID, allowing users to access their subtitle library from any phone, laptop, or desktop.
-4. **Negligible Developer Cost**: Heavy video/audio is never uploaded to Firebase; only lightweight text SRT files (2–150 KB) are synced, easily staying well within Firebase's free tier.
-5. **Full Security & Privacy**: User API keys stay securely locked in local hardware keyrings and are never transmitted to Firebase.
+| **Test 1: Japanese Anime (5m)** | High-speed dialogue, BGM, SFX | Correct particle segmentation (`は`, `が`); no spurious spaces; valid timestamps. |
+| **Test 2: Chinese Lecture (30m)** | Technical terminology, mixed English | Correct simplified/traditional characters; Chengyu idioms preserved on single lines. |
+| **Test 3: Korean Drama (45m)** | Soft speech, rapid dialogue | Accurate eojeol spacing; correct sentence ending punctuation; no cut phonemes. |
+| **Test 4: 3-Hour Feature Movie** | 180 min, multiple scene changes | Audio extracted in <40s; all chunks $\le 20\text{MB}$; zero timestamp drift; SRT output. |
+| **Test 5: Cross-Device Firebase Sync**| Generate on phone; open on PC | Subtitle metadata appears in PC library in <2s; on-demand SRT download works cleanly. |
+| **Test 6: Offline / Guest Mode** | No Google Sign-In, airplane mode | Full transcription, translation, local SRT export, and SQLite search work 100% offline. |
+| **Test 7: Multi-Track Video** | Video with Japanese 5.1 + English dub| Probed correctly; track picker displays; user can select Japanese track explicitly. |
