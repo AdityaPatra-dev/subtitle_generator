@@ -57,3 +57,4 @@ test_samples/
 /android/app/debug
 /android/app/profile
 /android/app/release
+*.apk
