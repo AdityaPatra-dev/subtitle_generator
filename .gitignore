@@ -45,6 +45,14 @@ app.*.map.json
 *.env
 !.env.example
 
+# Test media files
+test_vid/
+test_samples/
+*.mp4
+*.mkv
+*.wav
+*.mp3
+
 # Android Studio will place build artifacts here
 /android/app/debug
 /android/app/profile

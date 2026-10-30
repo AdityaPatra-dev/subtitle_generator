@@ -84,7 +84,7 @@ class ProcessMediaEngine implements MediaEngine {
     final List<String> args = [
       '-i', inputPath,
       '-vn',
-      '-map', '0:a:$audioStreamIndex',
+      '-map', '0:$audioStreamIndex',
     ];
 
     final filterStr = config.toFfmpegFilterString();
