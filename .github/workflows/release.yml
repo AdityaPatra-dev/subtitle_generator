@@ -142,6 +142,8 @@ jobs:
         run: flutter pub get
 
       - name: Build Windows Release
+        env:
+          CMAKE_POLICY_VERSION_MINIMUM: "3.5"
         run: flutter build windows --release
 
       - name: Package Windows Binary Archive
