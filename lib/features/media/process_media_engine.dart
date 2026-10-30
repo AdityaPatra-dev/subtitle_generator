@@ -196,17 +196,3 @@ class ProcessMediaEngine implements MediaEngine {
     return chunkPaths;
   }
 }
-
-class MediaEngineException implements Exception {
-  final String message;
-  const MediaEngineException(this.message);
-  @override
-  String toString() => 'MediaEngineException: $message';
-}
-
-class FileNotFoundException implements Exception {
-  final String message;
-  const FileNotFoundException(this.message);
-  @override
-  String toString() => 'FileNotFoundException: $message';
-}

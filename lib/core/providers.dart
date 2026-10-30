@@ -1,8 +1,10 @@
+import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'security/secure_storage_service.dart';
 import 'storage/database.dart';
 import '../features/media/media_engine.dart';
 import '../features/media/process_media_engine.dart';
+import '../features/media/ffmpeg_kit_media_engine.dart';
 import '../features/translation/translation_service.dart';
 import '../features/transcription/pipeline_coordinator.dart';
 
@@ -20,6 +22,9 @@ final secureStorageProvider = Provider<SecureStorageService>((ref) {
 
 // Media Engine Provider
 final mediaEngineProvider = Provider<MediaEngine>((ref) {
+  if (Platform.isAndroid || Platform.isIOS || Platform.isMacOS) {
+    return const FfmpegKitMediaEngine();
+  }
   return const ProcessMediaEngine();
 });
 

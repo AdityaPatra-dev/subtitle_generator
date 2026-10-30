@@ -49,8 +49,12 @@ class UpdateCheckerService {
       final latestParts = latestBase.split('.').map((p) => int.tryParse(p) ?? 0).toList();
       final currentParts = currentBase.split('.').map((p) => int.tryParse(p) ?? 0).toList();
 
-      while (latestParts.length < 3) latestParts.add(0);
-      while (currentParts.length < 3) currentParts.add(0);
+      while (latestParts.length < 3) {
+        latestParts.add(0);
+      }
+      while (currentParts.length < 3) {
+        currentParts.add(0);
+      }
 
       for (int i = 0; i < 3; i++) {
         if (latestParts[i] > currentParts[i]) return true;

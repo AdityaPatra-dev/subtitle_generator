@@ -11,7 +11,7 @@
 <p align="center">
   <a href="https://github.com/AdityaPatra-dev/subtitle_generator/actions/workflows/release.yml"><img src="https://github.com/AdityaPatra-dev/subtitle_generator/actions/workflows/release.yml/badge.svg" alt="Build & Release" /></a>
   <a href="https://flutter.dev"><img src="https://img.shields.io/badge/Flutter-3.44.8-02569B?logo=flutter&logoColor=white&style=flat-square" alt="Flutter" /></a>
-  <a href="https://github.com/AdityaPatra-dev/subtitle_generator/releases"><img src="https://img.shields.io/badge/Release-v1.0.1-success?logo=github&style=flat-square" alt="Releases" /></a>
+  <a href="https://github.com/AdityaPatra-dev/subtitle_generator/releases"><img src="https://img.shields.io/badge/Release-v1.0.2-success?logo=github&style=flat-square" alt="Releases" /></a>
   <a href="https://github.com/AdityaPatra-dev/subtitle_generator/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue?style=flat-square" alt="License" /></a>
 </p>
 
