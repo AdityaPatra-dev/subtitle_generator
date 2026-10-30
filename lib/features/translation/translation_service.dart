@@ -59,8 +59,14 @@ RULES:
     final List<TranslationSegmentOutput> allResults = [];
     String previousContext = '';
 
-    for (int i = 0; i < segments.length; i += batchSize) {
-      final batch = segments.sublist(i, (i + batchSize > segments.length) ? segments.length : i + batchSize);
+    int effectiveBatchSize = batchSize;
+    if (modelType == TranslationModelType.groqLlama3370b && effectiveBatchSize > 25) {
+      // Groq free tier has an 8,000 TPM limit; use smaller batches of 25 segments
+      effectiveBatchSize = 25;
+    }
+
+    for (int i = 0; i < segments.length; i += effectiveBatchSize) {
+      final batch = segments.sublist(i, (i + effectiveBatchSize > segments.length) ? segments.length : i + effectiveBatchSize);
       final batchIds = batch.map((s) => s.id).toList();
 
       final batchOutputs = await _translateBatchWithRetry(
@@ -78,6 +84,11 @@ RULES:
         previousContext = '${batchOutputs[batchOutputs.length - 2].translation} ${batchOutputs.last.translation}';
       } else if (batchOutputs.isNotEmpty) {
         previousContext = batchOutputs.last.translation;
+      }
+
+      // Small throttle between batches to avoid rate limit spikes
+      if (i + effectiveBatchSize < segments.length) {
+        await Future.delayed(const Duration(milliseconds: 600));
       }
     }
 
@@ -221,33 +232,47 @@ RULES:
     DioException? lastError;
 
     for (final model in modelsToTry) {
-      try {
-        response = await _dio.post(
-          'https://api.groq.com/openai/v1/chat/completions',
-          options: Options(headers: {
-            'Authorization': 'Bearer ${apiKey.trim()}',
-            'Content-Type': 'application/json',
-          }),
-          data: {
-            'model': model,
-            'messages': [
-              {'role': 'system', 'content': _systemPrompt},
-              {'role': 'user', 'content': userContent}
-            ],
-            'response_format': {'type': 'json_object'},
-            'temperature': 0.1,
-          },
-        );
-        if (response.statusCode == 200) {
-          break;
+      int attempts = 0;
+      while (attempts < 3) {
+        attempts++;
+        try {
+          response = await _dio.post(
+            'https://api.groq.com/openai/v1/chat/completions',
+            options: Options(headers: {
+              'Authorization': 'Bearer ${apiKey.trim()}',
+              'Content-Type': 'application/json',
+            }),
+            data: {
+              'model': model,
+              'messages': [
+                {'role': 'system', 'content': _systemPrompt},
+                {'role': 'user', 'content': userContent}
+              ],
+              'response_format': {'type': 'json_object'},
+              'temperature': 0.1,
+            },
+          );
+          if (response.statusCode == 200) {
+            break;
+          }
+        } on DioException catch (e) {
+          lastError = e;
+          if (e.response?.statusCode == 429) {
+            // Rate limited; wait with exponential backoff and retry
+            final waitSeconds = attempts * 3;
+            await Future.delayed(Duration(seconds: waitSeconds));
+            continue;
+          }
+          if (e.response?.statusCode == 404) {
+            // Model not found on this account tier; try next model
+            break;
+          }
+          rethrow;
         }
-      } on DioException catch (e) {
-        lastError = e;
-        if (e.response?.statusCode == 404) {
-          // Model not found on this account tier; try fallback
-          continue;
-        }
-        rethrow;
+      }
+
+      if (response != null && response.statusCode == 200) {
+        break;
       }
     }
 

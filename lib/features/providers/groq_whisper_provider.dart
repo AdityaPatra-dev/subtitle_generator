@@ -42,6 +42,20 @@ class GroqWhisperProvider implements BaseTranscriptionProvider {
     }
   }
 
+  static String normalizeWhisperLanguage(String? lang) {
+    if (lang == null || lang.isEmpty) return '';
+    final lower = lang.toLowerCase().trim();
+    if (lower.startsWith('zh')) return 'zh';
+    if (lower.startsWith('ja')) return 'ja';
+    if (lower.startsWith('ko')) return 'ko';
+    if (lower.startsWith('es')) return 'es';
+    if (lower.startsWith('fr')) return 'fr';
+    if (lower.startsWith('de')) return 'de';
+    if (lower.startsWith('en')) return 'en';
+    if (lower.contains('-')) return lower.split('-').first;
+    return lower;
+  }
+
   @override
   Future<TranscriptionResult> transcribeChunk({
     required String audioChunkPath,
@@ -52,6 +66,8 @@ class GroqWhisperProvider implements BaseTranscriptionProvider {
     if (!await file.exists()) {
       throw TranscriptionException(provider: name, message: 'Audio chunk file not found: $audioChunkPath');
     }
+
+    final normalizedLang = normalizeWhisperLanguage(sourceLanguage);
 
     int attempts = 0;
     const int maxAttempts = 4;
@@ -69,7 +85,7 @@ class GroqWhisperProvider implements BaseTranscriptionProvider {
           'model': modelId,
           'response_format': 'verbose_json',
           'temperature': '0.0',
-          if (sourceLanguage != null && sourceLanguage.isNotEmpty) 'language': sourceLanguage,
+          if (normalizedLang.isNotEmpty) 'language': normalizedLang,
         });
 
         final response = await _dio.post(

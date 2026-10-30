@@ -52,12 +52,14 @@ class DeepgramNovaProvider implements BaseTranscriptionProvider {
       throw TranscriptionException(provider: name, message: 'Audio chunk file not found: $audioChunkPath');
     }
 
+    final normalizedLang = (sourceLanguage?.startsWith('zh') == true) ? 'zh' : sourceLanguage;
+
     final queryParams = <String, dynamic>{
       'model': modelId,
       'smart_format': 'true',
       'utterances': 'true',
       'punctuate': 'true',
-      if (sourceLanguage != null && sourceLanguage.isNotEmpty) 'language': sourceLanguage,
+      if (normalizedLang != null && normalizedLang.isNotEmpty) 'language': normalizedLang,
     };
 
     try {

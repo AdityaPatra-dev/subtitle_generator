@@ -151,6 +151,7 @@ class AppDatabase extends _$AppDatabase {
   Future<void> insertJob(JobsCompanion job) => into(jobs).insert(job);
   Future<void> updateJob(JobsCompanion job) => (update(jobs)..where((t) => t.id.equals(job.id.value))).write(job);
   Future<JobEntry?> getJob(String id) => (select(jobs)..where((t) => t.id.equals(id))).getSingleOrNull();
+  Future<List<JobEntry>> getAllJobs() => select(jobs).get();
   Stream<List<JobEntry>> watchAllJobs() => (select(jobs)..orderBy([(t) => OrderingTerm.desc(t.createdAt)])).watch();
   Future<List<JobEntry>> getActiveJobs() => (select(jobs)..where((t) => t.status.isNotIn(['completed', 'failed', 'cancelled']))).get();
 
@@ -171,6 +172,7 @@ class AppDatabase extends _$AppDatabase {
   Future<void> insertSubtitle(SubtitlesCompanion subtitle) => into(subtitles).insert(subtitle);
   Future<void> updateSubtitle(SubtitlesCompanion subtitle) => (update(subtitles)..where((t) => t.id.equals(subtitle.id.value))).write(subtitle);
   Future<SubtitleEntry?> getSubtitle(String id) => (select(subtitles)..where((t) => t.id.equals(id))).getSingleOrNull();
+  Future<List<SubtitleEntry>> getAllSubtitles() => select(subtitles).get();
   Stream<List<SubtitleEntry>> watchActiveSubtitles() => (select(subtitles)..where((t) => t.isDeleted.equals(false))..orderBy([(t) => OrderingTerm.desc(t.createdAt)])).watch();
   Future<void> softDeleteSubtitle(String id) => (update(subtitles)..where((t) => t.id.equals(id))).write(SubtitlesCompanion(
     isDeleted: const Value(true),
