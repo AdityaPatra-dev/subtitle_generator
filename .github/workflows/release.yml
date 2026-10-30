@@ -1,14 +1,21 @@
 name: Build & Release Multi-Platform
 
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
     inputs:
-      tag_name:
-        description: 'Release tag name (e.g. v1.0.1)'
+      publish_release:
+        description: 'Publish GitHub Release'
+        required: true
+        type: boolean
+        default: true
+      release_tag:
+        description: 'Release Tag (leave empty for auto tag e.g. v1.0.2)'
         required: false
-        default: 'latest'
+        type: string
+        default: ''
 
 permissions:
   contents: write
@@ -18,13 +25,13 @@ jobs:
   # ANDROID BUILD
   # -------------------------------------------------------------
   build-android:
-    name: Build Android APK
+    name: 📱 Build Android APK
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Java 17
+      - name: Set up Java 17 (JDK)
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
@@ -36,46 +43,33 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Install Dependencies
+      - name: Install dependencies
         run: flutter pub get
 
       - name: Build Android Release APK
         run: flutter build apk --release
 
-      - name: Prepare Android Asset
-        id: prepare_asset
-        run: |
-          TAG="${{ github.event.release.tag_name || inputs.tag_name || 'v1.0.0' }}"
-          ASSET_NAME="subtitle_generator-${TAG}.apk"
-          cp build/app/outputs/flutter-apk/app-release.apk "${ASSET_NAME}"
-          echo "asset_path=${ASSET_NAME}" >> $GITHUB_OUTPUT
+      - name: Package Android Artifact
+        run: cp build/app/outputs/flutter-apk/app-release.apk Subtitle-Generator-Android.apk
 
-      - name: Upload Android Asset to GitHub Release
-        uses: softprops/action-gh-release@v2
-        if: github.event_name == 'release' || inputs.tag_name != ''
-        with:
-          tag_name: ${{ github.event.release.tag_name || inputs.tag_name }}
-          files: ${{ steps.prepare_asset.outputs.asset_path }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Archive Android Artifact
+      - name: Upload Android APK
         uses: actions/upload-artifact@v4
         with:
-          name: android-release-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
+          name: subtitle-generator-android-apk
+          path: Subtitle-Generator-Android.apk
+          retention-days: 7
 
   # -------------------------------------------------------------
   # LINUX BUILD
   # -------------------------------------------------------------
   build-linux:
-    name: Build Linux Desktop
+    name: 🐧 Build Linux Desktop
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install Linux Build Dependencies
+      - name: Install Linux build dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -94,43 +88,33 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Install Dependencies
+      - name: Enable Linux Desktop
+        run: flutter config --enable-linux-desktop
+
+      - name: Install dependencies
         run: flutter pub get
 
-      - name: Build Linux Release
+      - name: Build Linux Desktop Bundle
         run: flutter build linux --release
 
-      - name: Package Linux Binary Archive
-        id: prepare_asset
-        run: |
-          TAG="${{ github.event.release.tag_name || inputs.tag_name || 'v1.0.0' }}"
-          ARCHIVE_NAME="subtitle_generator-linux-${TAG}.tar.gz"
-          tar -czvf "${ARCHIVE_NAME}" -C build/linux/x64/release/bundle .
-          echo "asset_path=${ARCHIVE_NAME}" >> $GITHUB_OUTPUT
+      - name: Compress Linux Bundle
+        run: tar -czvf Subtitle-Generator-Linux-x64.tar.gz -C build/linux/x64/release/bundle .
 
-      - name: Upload Linux Asset to GitHub Release
-        uses: softprops/action-gh-release@v2
-        if: github.event_name == 'release' || inputs.tag_name != ''
-        with:
-          tag_name: ${{ github.event.release.tag_name || inputs.tag_name }}
-          files: ${{ steps.prepare_asset.outputs.asset_path }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Archive Linux Artifact
+      - name: Upload Linux Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: linux-release-bundle
-          path: ${{ steps.prepare_asset.outputs.asset_path }}
+          name: subtitle-generator-linux-x64
+          path: Subtitle-Generator-Linux-x64.tar.gz
+          retention-days: 7
 
   # -------------------------------------------------------------
   # WINDOWS BUILD
   # -------------------------------------------------------------
   build-windows:
-    name: Build Windows Desktop
+    name: 🪟 Build Windows Desktop
     runs-on: windows-latest
     steps:
-      - name: Checkout Code
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Set up Flutter
@@ -139,46 +123,36 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Install Dependencies
+      - name: Enable Windows Desktop
+        run: flutter config --enable-windows-desktop
+
+      - name: Install dependencies
         run: flutter pub get
 
-      - name: Build Windows Release
+      - name: Build Windows Desktop
         env:
           CMAKE_POLICY_VERSION_MINIMUM: "3.5"
         run: flutter build windows --release
 
-      - name: Package Windows Binary Archive
-        id: prepare_asset
+      - name: Compress Windows Bundle
         shell: pwsh
-        run: |
-          $tag = "${{ github.event.release.tag_name || inputs.tag_name || 'v1.0.0' }}"
-          $archiveName = "subtitle_generator-windows-$tag.zip"
-          Compress-Archive -Path "build\windows\x64\runner\Release\*" -DestinationPath $archiveName
-          Write-Output "asset_path=$archiveName" >> $env:GITHUB_OUTPUT
+        run: Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath Subtitle-Generator-Windows-x64.zip
 
-      - name: Upload Windows Asset to GitHub Release
-        uses: softprops/action-gh-release@v2
-        if: github.event_name == 'release' || inputs.tag_name != ''
-        with:
-          tag_name: ${{ github.event.release.tag_name || inputs.tag_name }}
-          files: ${{ steps.prepare_asset.outputs.asset_path }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Archive Windows Artifact
+      - name: Upload Windows Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: windows-release-bundle
-          path: ${{ steps.prepare_asset.outputs.asset_path }}
+          name: subtitle-generator-windows-x64
+          path: Subtitle-Generator-Windows-x64.zip
+          retention-days: 7
 
   # -------------------------------------------------------------
-  # MACOS BUILD
+  # MACOS & IOS BUILD
   # -------------------------------------------------------------
-  build-macos:
-    name: Build macOS Desktop
+  build-macos-ios:
+    name: 🍎 Build macOS / iOS Bundle
     runs-on: macos-latest
     steps:
-      - name: Checkout Code
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Set up Flutter
@@ -187,79 +161,95 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Install Dependencies
+      - name: Enable macOS Desktop
+        run: flutter config --enable-macos-desktop
+
+      - name: Install dependencies
         run: flutter pub get
 
       - name: Build macOS Release
         run: flutter build macos --release
 
-      - name: Package macOS App Archive
-        id: prepare_asset
+      - name: Compress macOS Bundle
         run: |
-          TAG="${{ github.event.release.tag_name || inputs.tag_name || 'v1.0.0' }}"
-          ARCHIVE_NAME="subtitle_generator-macos-${TAG}.zip"
-          ditto -c -k --sequesterRsrc --keepParent "build/macos/Build/Products/Release/subtitle_generator.app" "${ARCHIVE_NAME}"
-          echo "asset_path=${ARCHIVE_NAME}" >> $GITHUB_OUTPUT
-
-      - name: Upload macOS Asset to GitHub Release
-        uses: softprops/action-gh-release@v2
-        if: github.event_name == 'release' || inputs.tag_name != ''
-        with:
-          tag_name: ${{ github.event.release.tag_name || inputs.tag_name }}
-          files: ${{ steps.prepare_asset.outputs.asset_path }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Archive macOS Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: macos-release-bundle
-          path: ${{ steps.prepare_asset.outputs.asset_path }}
-
-  # -------------------------------------------------------------
-  # IOS BUILD (Unsigned IPA Payload for Distribution/Sideloading)
-  # -------------------------------------------------------------
-  build-ios:
-    name: Build iOS (Unsigned IPA)
-    runs-on: macos-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: 'stable'
-          cache: true
-
-      - name: Install Dependencies
-        run: flutter pub get
+          cd build/macos/Build/Products/Release
+          zip -r ../../../../../Subtitle-Generator-macOS-Universal.zip *.app
+          cd ../../../../..
 
       - name: Build iOS Release Without Codesign
         run: flutter build ios --release --no-codesign
 
-      - name: Package Unsigned IPA Payload
-        id: prepare_asset
+      - name: Package Unsigned iOS IPA
         run: |
-          TAG="${{ github.event.release.tag_name || inputs.tag_name || 'v1.0.0' }}"
           mkdir -p Payload
           cp -r build/ios/iphoneos/Runner.app Payload/
-          ARCHIVE_NAME="subtitle_generator-ios-${TAG}-unsigned.ipa"
-          zip -r "${ARCHIVE_NAME}" Payload
-          echo "asset_path=${ARCHIVE_NAME}" >> $GITHUB_OUTPUT
+          zip -r Subtitle-Generator-iOS-unsigned.ipa Payload
 
-      - name: Upload iOS Asset to GitHub Release
-        uses: softprops/action-gh-release@v2
-        if: github.event_name == 'release' || inputs.tag_name != ''
-        with:
-          tag_name: ${{ github.event.release.tag_name || inputs.tag_name }}
-          files: ${{ steps.prepare_asset.outputs.asset_path }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Archive iOS Artifact
+      - name: Upload macOS & iOS Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ios-release-ipa
-          path: ${{ steps.prepare_asset.outputs.asset_path }}
+          name: subtitle-generator-apple-bundle
+          path: |
+            Subtitle-Generator-macOS-Universal.zip
+            Subtitle-Generator-iOS-unsigned.ipa
+          retention-days: 7
 
+  # -------------------------------------------------------------
+  # CONSOLIDATED PUBLISH RELEASE
+  # -------------------------------------------------------------
+  publish-release:
+    name: 🚀 Publish Multi-Platform Release
+    needs: [build-android, build-linux, build-windows, build-macos-ios]
+    if: always() && (startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.publish_release)) && (needs.build-android.result == 'success' || needs.build-linux.result == 'success' || needs.build-windows.result == 'success')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Determine Release Tag
+        id: release_info
+        shell: bash
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            TAG="${{ github.ref_name }}"
+          elif [ -n "${{ inputs.release_tag }}" ]; then
+            TAG="${{ inputs.release_tag }}"
+          else
+            VERSION=$(grep '^version:' pubspec.yaml | cut -d ' ' -f 2 | cut -d '+' -f 1)
+            TAG="v${VERSION}"
+          fi
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+          echo "Release tag: ${TAG}"
+
+      - name: Download all workflow artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+
+      - name: Flatten Artifacts for Release
+        run: |
+          mkdir -p final-release
+          find release-artifacts/ -type f -exec cp {} final-release/ \;
+          ls -la final-release/
+
+      - name: Create or Update Multi-Platform GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          tag_name: ${{ steps.release_info.outputs.tag }}
+          name: Subtitle Generator ${{ steps.release_info.outputs.tag }} 🎬
+          files: final-release/*
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          body: |
+            # 🎬 Subtitle Generator ${{ steps.release_info.outputs.tag }} — Multi-Platform Release
+
+            Cross-Platform Edge-Cloud Hybrid AI Subtitle & Closed-Caption Engine.
+
+            ### 📦 Download Packages
+            * **📱 Android (APK):** `Subtitle-Generator-Android.apk`
+            * **🐧 Linux (x64 Portable):** `Subtitle-Generator-Linux-x64.tar.gz`
+            * **🪟 Windows (x64):** `Subtitle-Generator-Windows-x64.zip`
+            * **🍎 macOS (Universal):** `Subtitle-Generator-macOS-Universal.zip`
+            * **📱 iOS (Unsigned IPA):** `Subtitle-Generator-iOS-unsigned.ipa`
