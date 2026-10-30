@@ -1,7 +1,18 @@
+<p align="center">
+  <img src="assets/icons/app_icon.png" width="130" height="130" style="border-radius: 28px; box-shadow: 0 8px 24px rgba(0,0,0,0.4);" alt="Subtitle Generator App Icon" />
+</p>
+
 # <p align="center">🎬 SubtitleGen AI</p>
 
 <p align="center">
   <strong>⚡ Ultra-Fast Cross-Platform AI Subtitle & Dubbing Engine (Edge-Cloud Hybrid)</strong>
+</p>
+
+<p align="center">
+  <a href="https://github.com/AdityaPatra-dev/subtitle_generator/actions/workflows/release.yml"><img src="https://github.com/AdityaPatra-dev/subtitle_generator/actions/workflows/release.yml/badge.svg" alt="Build & Release" /></a>
+  <a href="https://flutter.dev"><img src="https://img.shields.io/badge/Flutter-3.44.8-02569B?logo=flutter&logoColor=white&style=flat-square" alt="Flutter" /></a>
+  <a href="https://github.com/AdityaPatra-dev/subtitle_generator/releases"><img src="https://img.shields.io/badge/Release-v1.0.0-success?logo=github&style=flat-square" alt="Releases" /></a>
+  <a href="https://github.com/AdityaPatra-dev/subtitle_generator/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue?style=flat-square" alt="License" /></a>
 </p>
 
 <p align="center">
