@@ -207,25 +207,54 @@ RULES:
   }) async {
     final userContent = jsonEncode({
       if (previousContext.isNotEmpty) 'dialogueContext': previousContext,
+      'instructions': 'Translate each segment into natural English following BBC/Netflix standards. Return strictly JSON with format {"translations": [{"id": 1, "translation": "..."}]}.',
       'segments': batch.map((s) => s.toJson()).toList(),
     });
 
-    final response = await _dio.post(
-      'https://api.groq.com/openai/v1/chat/completions',
-      options: Options(headers: {
-        'Authorization': 'Bearer ${apiKey.trim()}',
-        'Content-Type': 'application/json',
-      }),
-      data: {
-        'model': 'llama-3.3-70b-versatile',
-        'messages': [
-          {'role': 'system', 'content': _systemPrompt},
-          {'role': 'user', 'content': userContent}
-        ],
-        'response_format': {'type': 'json_object'},
-        'temperature': 0.1,
-      },
-    );
+    final modelsToTry = [
+      'llama-3.3-70b-versatile',
+      'qwen/qwen3.8-27b',
+      'openai/gpt-oss-120b',
+    ];
+
+    Response? response;
+    DioException? lastError;
+
+    for (final model in modelsToTry) {
+      try {
+        response = await _dio.post(
+          'https://api.groq.com/openai/v1/chat/completions',
+          options: Options(headers: {
+            'Authorization': 'Bearer ${apiKey.trim()}',
+            'Content-Type': 'application/json',
+          }),
+          data: {
+            'model': model,
+            'messages': [
+              {'role': 'system', 'content': _systemPrompt},
+              {'role': 'user', 'content': userContent}
+            ],
+            'response_format': {'type': 'json_object'},
+            'temperature': 0.1,
+          },
+        );
+        if (response.statusCode == 200) {
+          break;
+        }
+      } on DioException catch (e) {
+        lastError = e;
+        if (e.response?.statusCode == 404) {
+          // Model not found on this account tier; try fallback
+          continue;
+        }
+        rethrow;
+      }
+    }
+
+    if (response == null) {
+      if (lastError != null) throw lastError;
+      throw Exception('Failed to get translation from Groq');
+    }
 
     final data = response.data as Map<String, dynamic>;
     final choices = (data['choices'] as List<dynamic>?) ?? [];
