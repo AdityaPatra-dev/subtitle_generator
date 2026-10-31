@@ -7,6 +7,7 @@ import '../../core/storage/database.dart';
 import '../../features/subtitles/subtitle_cue.dart';
 import '../../features/subtitles/subtitle_line_breaker.dart';
 import '../../features/subtitles/subtitle_serializer.dart';
+import '../theme/app_theme.dart';
 
 class EditorScreen extends ConsumerStatefulWidget {
   final SubtitleEntry subtitle;
@@ -70,7 +71,18 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     setState(() => _isSaving = false);
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Changes saved successfully!')),
+        SnackBar(
+          content: const Row(
+            children: [
+              Icon(Icons.check, color: Colors.greenAccent, size: 18),
+              SizedBox(width: 8),
+              Text('Changes saved successfully!'),
+            ],
+          ),
+          backgroundColor: const Color(0xFF1E293B),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
       );
     }
   }
@@ -146,104 +158,133 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: AppTheme.darkBg,
       appBar: AppBar(
-        title: Text('Edit: ${widget.subtitle.title}'),
+        title: Text(
+          widget.subtitle.title,
+          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+          overflow: TextOverflow.ellipsis,
+        ),
         actions: [
-          TextButton.icon(
-            onPressed: _isSaving ? null : _saveChanges,
-            icon: _isSaving
-                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                : const Icon(Icons.save, color: Colors.white),
-            label: const Text('Save', style: TextStyle(color: Colors.white)),
+          Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: ElevatedButton.icon(
+              onPressed: _isSaving ? null : _saveChanges,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.primaryViolet,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              icon: _isSaving
+                  ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  : const Icon(Icons.save_rounded, size: 16),
+              label: const Text('Save', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+            ),
           ),
-          const SizedBox(width: 8),
         ],
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
+          ? const Center(child: CircularProgressIndicator(color: AppTheme.accentCyan))
           : _cues.isEmpty
-              ? const Center(child: Text('No subtitle cues found.'))
+              ? const Center(
+                  child: Text('No subtitle cues found.', style: TextStyle(color: Colors.white60)),
+                )
               : ListView.builder(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
                   itemCount: _cues.length,
                   itemBuilder: (context, i) {
                     final cue = _cues[i];
                     final lines = cue.text.split('\n');
                     final isOverCpl = lines.any((l) => l.length > SubtitleLineBreaker.maxCharactersPerLine);
 
-                    return Card(
+                    return Container(
                       margin: const EdgeInsets.only(bottom: 12),
+                      decoration: BoxDecoration(
+                        color: AppTheme.darkCard,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: AppTheme.borderSubtle),
+                      ),
                       child: Padding(
                         padding: const EdgeInsets.all(14),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Chip(
-                                  label: Text('#${cue.index}'),
-                                  visualDensity: VisualDensity.compact,
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                  decoration: BoxDecoration(
+                                    color: AppTheme.primaryViolet.withValues(alpha: 0.15),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(color: AppTheme.primaryViolet.withValues(alpha: 0.3)),
+                                  ),
+                                  child: Text(
+                                    '#${cue.index}',
+                                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12, color: AppTheme.accentCyan),
+                                  ),
                                 ),
+                                const SizedBox(width: 10),
+                                const Icon(Icons.schedule_rounded, size: 14, color: Colors.white54),
+                                const SizedBox(width: 4),
                                 Text(
                                   cue.srtTimecode,
-                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                  style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Colors.white70),
                                 ),
+                                const Spacer(),
                                 IconButton(
-                                  icon: const Icon(Icons.delete_outline, color: Colors.redAccent, size: 20),
+                                  icon: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent, size: 20),
                                   onPressed: () => _deleteCue(i),
                                   tooltip: 'Delete Cue',
+                                  visualDensity: VisualDensity.compact,
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 8),
+                            const SizedBox(height: 10),
                             TextFormField(
                               initialValue: cue.text,
                               maxLines: null,
+                              style: const TextStyle(fontSize: 15, height: 1.4, color: Colors.white),
                               decoration: InputDecoration(
                                 isDense: true,
+                                fillColor: AppTheme.darkSurface.withValues(alpha: 0.4),
                                 helperText: isOverCpl ? 'Warning: Line exceeds 42 characters' : null,
-                                helperStyle: const TextStyle(color: Colors.orange),
+                                helperStyle: const TextStyle(color: Colors.amberAccent, fontSize: 11),
                               ),
                               onChanged: (val) {
                                 _cues[i] = cue.copyWith(text: val);
                               },
                             ),
-                            const SizedBox(height: 10),
+                            const SizedBox(height: 12),
                             Wrap(
-                              spacing: 8,
-                              runSpacing: 4,
+                              spacing: 6,
+                              runSpacing: 6,
                               children: [
-                                OutlinedButton(
-                                  onPressed: () => _nudgeStart(i, -0.1),
-                                  style: OutlinedButton.styleFrom(visualDensity: VisualDensity.compact),
-                                  child: const Text('Start -100ms'),
-                                ),
-                                OutlinedButton(
-                                  onPressed: () => _nudgeStart(i, 0.1),
-                                  style: OutlinedButton.styleFrom(visualDensity: VisualDensity.compact),
-                                  child: const Text('Start +100ms'),
-                                ),
-                                OutlinedButton(
-                                  onPressed: () => _nudgeEnd(i, -0.1),
-                                  style: OutlinedButton.styleFrom(visualDensity: VisualDensity.compact),
-                                  child: const Text('End -100ms'),
-                                ),
-                                OutlinedButton(
-                                  onPressed: () => _nudgeEnd(i, 0.1),
-                                  style: OutlinedButton.styleFrom(visualDensity: VisualDensity.compact),
-                                  child: const Text('End +100ms'),
-                                ),
-                                TextButton.icon(
+                                _buildNudgeButton('Start -100ms', () => _nudgeStart(i, -0.1)),
+                                _buildNudgeButton('Start +100ms', () => _nudgeStart(i, 0.1)),
+                                _buildNudgeButton('End -100ms', () => _nudgeEnd(i, -0.1)),
+                                _buildNudgeButton('End +100ms', () => _nudgeEnd(i, 0.1)),
+                                OutlinedButton.icon(
                                   onPressed: () => _splitCue(i),
-                                  icon: const Icon(Icons.call_split, size: 16),
-                                  label: const Text('Split'),
+                                  style: OutlinedButton.styleFrom(
+                                    side: const BorderSide(color: AppTheme.borderSubtle),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                    visualDensity: VisualDensity.compact,
+                                  ),
+                                  icon: const Icon(Icons.call_split_rounded, size: 14, color: AppTheme.accentCyan),
+                                  label: const Text('Split', style: TextStyle(fontSize: 11, color: Colors.white70)),
                                 ),
                                 if (i < _cues.length - 1)
-                                  TextButton.icon(
+                                  OutlinedButton.icon(
                                     onPressed: () => _mergeNext(i),
-                                    icon: const Icon(Icons.merge, size: 16),
-                                    label: const Text('Merge Next'),
+                                    style: OutlinedButton.styleFrom(
+                                      side: const BorderSide(color: AppTheme.borderSubtle),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                      visualDensity: VisualDensity.compact,
+                                    ),
+                                    icon: const Icon(Icons.merge_rounded, size: 14, color: AppTheme.accentCyan),
+                                    label: const Text('Merge Next', style: TextStyle(fontSize: 11, color: Colors.white70)),
                                   ),
                               ],
                             ),
@@ -255,5 +296,17 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                 ),
     );
   }
-}
 
+  Widget _buildNudgeButton(String label, VoidCallback onPressed) {
+    return OutlinedButton(
+      onPressed: onPressed,
+      style: OutlinedButton.styleFrom(
+        side: const BorderSide(color: AppTheme.borderSubtle),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        visualDensity: VisualDensity.compact,
+      ),
+      child: Text(label, style: const TextStyle(fontSize: 11, color: Colors.white70)),
+    );
+  }
+}

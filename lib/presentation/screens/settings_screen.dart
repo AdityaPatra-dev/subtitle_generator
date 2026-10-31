@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -8,6 +7,7 @@ import '../../core/services/update_checker_service.dart';
 import '../../features/providers/deepgram_provider.dart';
 import '../../features/providers/gemini_provider.dart';
 import '../../features/providers/groq_whisper_provider.dart';
+import '../theme/app_theme.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -21,9 +21,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   final _geminiController = TextEditingController();
   final _deepgramController = TextEditingController();
 
-  final _updateChecker = UpdateCheckerService();
+  final UpdateCheckerService _updateChecker = UpdateCheckerService();
   bool _isCheckingUpdate = false;
-  String _currentAppVersion = '1.0.0+1';
+  String _currentAppVersion = '1.0.2+3';
 
   bool _obscureGroq = true;
   bool _obscureGemini = true;
@@ -65,14 +65,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         showDialog(
           context: context,
           builder: (ctx) => AlertDialog(
+            backgroundColor: AppTheme.darkCard,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
             icon: const Icon(Icons.check_circle_outline, color: Colors.greenAccent, size: 48),
             title: const Text('Application Up to Date'),
             content: Text(
               'You are running the latest version of SubtitleGen AI (${updateInfo.currentVersion}).',
               textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.white70),
             ),
             actions: [
-              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK')),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('OK', style: TextStyle(color: AppTheme.accentCyan, fontWeight: FontWeight.bold)),
+              ),
             ],
           ),
         );
@@ -86,6 +92,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         SnackBar(
           content: Text('Failed to check for updates: $e'),
           backgroundColor: Colors.redAccent,
+          behavior: SnackBarBehavior.floating,
         ),
       );
     }
@@ -101,7 +108,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       barrierDismissible: !isDownloading,
       builder: (ctx) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          icon: const Icon(Icons.system_update_rounded, color: Colors.cyanAccent, size: 48),
+          backgroundColor: AppTheme.darkCard,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+          icon: const Icon(Icons.system_update_rounded, color: AppTheme.accentCyan, size: 48),
           title: Text('New Version: ${updateInfo.latestVersion}'),
           content: SingleChildScrollView(
             child: Column(
@@ -115,19 +124,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 const SizedBox(height: 8),
                 Text(
                   updateInfo.releaseName,
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.white),
                 ),
                 const SizedBox(height: 8),
                 Container(
-                  padding: const EdgeInsets.all(10),
+                  padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
                     color: Colors.black26,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.white12),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: AppTheme.borderSubtle),
                   ),
                   child: Text(
                     updateInfo.releaseNotes,
-                    style: const TextStyle(fontSize: 13, height: 1.4),
+                    style: const TextStyle(fontSize: 13, height: 1.4, color: Colors.white70),
                   ),
                 ),
                 if (updateInfo.apkSizeBytes != null) ...[
@@ -143,7 +152,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   const SizedBox(height: 8),
                   Text(
                     downloadStatus,
-                    style: const TextStyle(fontSize: 12, color: Colors.cyanAccent),
+                    style: const TextStyle(fontSize: 12, color: AppTheme.accentCyan),
                   ),
                 ],
               ],
@@ -153,58 +162,59 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             if (!isDownloading) ...[
               TextButton(
                 onPressed: () => Navigator.pop(ctx),
-                child: const Text('Later'),
-              ),
-              TextButton.icon(
-                onPressed: () async {
-                  final uri = Uri.parse(updateInfo.releaseUrl);
-                  if (await canLaunchUrl(uri)) {
-                    await launchUrl(uri, mode: LaunchMode.externalApplication);
-                  }
-                },
-                icon: const Icon(Icons.open_in_browser, size: 16),
-                label: const Text('View on GitHub'),
+                child: const Text('Later', style: TextStyle(color: Colors.white60)),
               ),
               ElevatedButton.icon(
-                onPressed: (updateInfo.apkDownloadUrl == null && !Platform.isLinux)
-                    ? null
-                    : () async {
-                        setDialogState(() {
-                          isDownloading = true;
-                          downloadStatus = 'Starting download...';
-                        });
+                onPressed: () async {
+                  if (updateInfo.apkDownloadUrl == null) {
+                    final uri = Uri.parse(updateInfo.releaseUrl);
+                    if (await canLaunchUrl(uri)) {
+                      await launchUrl(uri, mode: LaunchMode.externalApplication);
+                    }
+                    if (ctx.mounted) Navigator.pop(ctx);
+                    return;
+                  }
 
-                        final targetDownloadUrl = updateInfo.apkDownloadUrl ?? updateInfo.releaseUrl;
-                        final fileName = 'subtitle_generator_${updateInfo.latestVersion}.apk';
+                  setDialogState(() {
+                    isDownloading = true;
+                    downloadStatus = 'Downloading APK...';
+                  });
 
-                        try {
-                          await _updateChecker.downloadAndInstallUpdate(
-                            downloadUrl: targetDownloadUrl,
-                            fileName: fileName,
-                            onProgress: (received, total) {
-                              setDialogState(() {
-                                if (total > 0) {
-                                  downloadProgress = received / total;
-                                  downloadStatus =
-                                      'Downloading update: ${(downloadProgress * 100).toStringAsFixed(0)}% (${(received / 1024 / 1024).toStringAsFixed(1)} MB / ${(total / 1024 / 1024).toStringAsFixed(1)} MB)';
-                                } else {
-                                  downloadStatus = 'Downloading update (${(received / 1024 / 1024).toStringAsFixed(1)} MB)...';
-                                }
-                              });
-                            },
-                          );
-
-                          if (context.mounted) {
-                            Navigator.pop(ctx);
-                          }
-                        } catch (e) {
+                  try {
+                    await _updateChecker.downloadAndInstallUpdate(
+                      downloadUrl: updateInfo.apkDownloadUrl!,
+                      fileName: 'subtitle_generator_update.apk',
+                      onProgress: (received, total) {
+                        if (total > 0) {
                           setDialogState(() {
-                            isDownloading = false;
-                            downloadStatus = 'Download failed: $e';
+                            downloadProgress = received / total;
+                            downloadStatus = 'Downloading: ${(downloadProgress * 100).toStringAsFixed(0)}%';
                           });
                         }
                       },
-                icon: const Icon(Icons.download_rounded),
+                    );
+
+                    setDialogState(() {
+                      downloadStatus = 'Launching package installer...';
+                    });
+                  } catch (e) {
+                    setDialogState(() {
+                      isDownloading = false;
+                      downloadStatus = '';
+                    });
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('Installation failed: $e'),
+                          backgroundColor: Colors.redAccent,
+                          behavior: SnackBarBehavior.floating,
+                        ),
+                      );
+                    }
+                  }
+                },
+                style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryViolet),
+                icon: const Icon(Icons.download_rounded, size: 18),
                 label: const Text('Update Now'),
               ),
             ],
@@ -232,13 +242,27 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       await ref.read(apiKeysProvider.notifier).setGroqKey(_groqController.text);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Groq API Key validated and saved securely!')),
+          const SnackBar(
+            content: Row(
+              children: [
+                Icon(Icons.check, color: Colors.greenAccent, size: 18),
+                SizedBox(width: 8),
+                Text('Groq API Key validated and saved securely!'),
+              ],
+            ),
+            backgroundColor: Color(0xFF1E293B),
+            behavior: SnackBarBehavior.floating,
+          ),
         );
       }
     } else {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Groq validation failed: ${result.errorMessage}'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('Groq validation failed: ${result.errorMessage}'),
+            backgroundColor: Colors.redAccent,
+            behavior: SnackBarBehavior.floating,
+          ),
         );
       }
     }
@@ -254,13 +278,27 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       await ref.read(apiKeysProvider.notifier).setGeminiKey(_geminiController.text);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Gemini API Key validated and saved securely!')),
+          const SnackBar(
+            content: Row(
+              children: [
+                Icon(Icons.check, color: Colors.greenAccent, size: 18),
+                SizedBox(width: 8),
+                Text('Gemini API Key validated and saved securely!'),
+              ],
+            ),
+            backgroundColor: Color(0xFF1E293B),
+            behavior: SnackBarBehavior.floating,
+          ),
         );
       }
     } else {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Gemini validation failed: ${result.errorMessage}'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('Gemini validation failed: ${result.errorMessage}'),
+            backgroundColor: Colors.redAccent,
+            behavior: SnackBarBehavior.floating,
+          ),
         );
       }
     }
@@ -276,13 +314,27 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       await ref.read(apiKeysProvider.notifier).setDeepgramKey(_deepgramController.text);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Deepgram API Key validated and saved securely!')),
+          const SnackBar(
+            content: Row(
+              children: [
+                Icon(Icons.check, color: Colors.greenAccent, size: 18),
+                SizedBox(width: 8),
+                Text('Deepgram API Key validated and saved securely!'),
+              ],
+            ),
+            backgroundColor: Color(0xFF1E293B),
+            behavior: SnackBarBehavior.floating,
+          ),
         );
       }
     } else {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Deepgram validation failed: ${result.errorMessage}'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('Deepgram validation failed: ${result.errorMessage}'),
+            backgroundColor: Colors.redAccent,
+            behavior: SnackBarBehavior.floating,
+          ),
         );
       }
     }
@@ -291,99 +343,146 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('AI Providers (BYOK) & Settings')),
-      body: ListView(
-        padding: const EdgeInsets.all(20),
-        children: [
-          const Text(
-            'Bring Your Own Key (BYOK)',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 6),
-          const Text(
-            'Your credentials are encrypted using hardware-backed secure storage and never leave your device. You are billed directly by the providers at their native rates.',
-            style: TextStyle(color: Colors.white70, fontSize: 13),
-          ),
-          const SizedBox(height: 20),
-
-          // --- Groq ---
-          _buildProviderCard(
-            title: 'Groq (Whisper Large-v3)',
-            description: 'Ultra-fast speech transcription. Highly recommended.',
-            dashboardUrl: 'https://console.groq.com/keys',
-            controller: _groqController,
-            obscure: _obscureGroq,
-            isTesting: _testingGroq,
-            onToggleObscure: () => setState(() => _obscureGroq = !_obscureGroq),
-            onSave: _testAndSaveGroq,
-          ),
-          const SizedBox(height: 16),
-
-          // --- Gemini ---
-          _buildProviderCard(
-            title: 'Google Gemini (2.5 Flash / Transcribe)',
-            description: 'Context-rich transcription and world-class English translation.',
-            dashboardUrl: 'https://aistudio.google.com/api-keys',
-            controller: _geminiController,
-            obscure: _obscureGemini,
-            isTesting: _testingGemini,
-            onToggleObscure: () => setState(() => _obscureGemini = !_obscureGemini),
-            onSave: _testAndSaveGemini,
-          ),
-          const SizedBox(height: 16),
-
-          // --- Deepgram ---
-          _buildProviderCard(
-            title: 'Deepgram (Nova-3 Multilingual)',
-            description: 'High-accuracy audio transcription with speaker diarization.',
-            dashboardUrl: 'https://console.deepgram.com/',
-            controller: _deepgramController,
-            obscure: _obscureDeepgram,
-            isTesting: _testingDeepgram,
-            onToggleObscure: () => setState(() => _obscureDeepgram = !_obscureDeepgram),
-            onSave: _testAndSaveDeepgram,
-          ),
-          const SizedBox(height: 24),
-
-          // --- Application Updates ---
-          _buildUpdateCard(),
-          const SizedBox(height: 24),
-
-          // --- Purge Credentials ---
-          OutlinedButton.icon(
-            onPressed: () async {
-              final confirm = await showDialog<bool>(
-                context: context,
-                builder: (ctx) => AlertDialog(
-                  title: const Text('Purge All Credentials?'),
-                  content: const Text('This will delete all stored API keys from your hardware keystore.'),
-                  actions: [
-                    TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-                    TextButton(
-                      onPressed: () => Navigator.pop(ctx, true),
-                      style: TextButton.styleFrom(foregroundColor: Colors.red),
-                      child: const Text('Purge'),
-                    ),
-                  ],
+      backgroundColor: AppTheme.darkBg,
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+          children: [
+            // --- Header ---
+            Row(
+              children: [
+                Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: AppTheme.primaryViolet.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(Icons.vpn_key_rounded, color: AppTheme.accentCyan, size: 22),
                 ),
-              );
+                const SizedBox(width: 12),
+                const Text(
+                  'AI Providers & BYOK',
+                  style: TextStyle(
+                    fontSize: 21,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.5,
+                    color: Colors.white,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Your API keys are encrypted using hardware-backed keystores on this device and are sent directly to the AI models.',
+              style: TextStyle(color: Colors.white54, fontSize: 13, height: 1.4),
+            ),
+            const SizedBox(height: 22),
 
-              if (confirm == true) {
-                await ref.read(secureStorageProvider).purgeAllCredentials();
-                _groqController.clear();
-                _geminiController.clear();
-                _deepgramController.clear();
-                await ref.read(apiKeysProvider.notifier).loadKeys();
-                if (!context.mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('All credentials deleted.')),
+            // --- Groq ---
+            _buildProviderCard(
+              title: 'Groq Cloud (Whisper Large-v3)',
+              description: 'Ultra-fast speech transcription. Highly recommended.',
+              dashboardUrl: 'https://console.groq.com/keys',
+              controller: _groqController,
+              icon: Icons.bolt_rounded,
+              iconColor: Colors.amberAccent,
+              obscure: _obscureGroq,
+              isTesting: _testingGroq,
+              onToggleObscure: () => setState(() => _obscureGroq = !_obscureGroq),
+              onSave: _testAndSaveGroq,
+            ),
+            const SizedBox(height: 16),
+
+            // --- Gemini ---
+            _buildProviderCard(
+              title: 'Google Gemini (Flash / Transcribe)',
+              description: 'Context-rich transcription and world-class English translation.',
+              dashboardUrl: 'https://aistudio.google.com/api-keys',
+              controller: _geminiController,
+              icon: Icons.auto_awesome_rounded,
+              iconColor: Colors.cyanAccent,
+              obscure: _obscureGemini,
+              isTesting: _testingGemini,
+              onToggleObscure: () => setState(() => _obscureGemini = !_obscureGemini),
+              onSave: _testAndSaveGemini,
+            ),
+            const SizedBox(height: 16),
+
+            // --- Deepgram ---
+            _buildProviderCard(
+              title: 'Deepgram (Nova-3 Multilingual)',
+              description: 'High-accuracy audio transcription with speaker diarization.',
+              dashboardUrl: 'https://console.deepgram.com/',
+              controller: _deepgramController,
+              icon: Icons.mic_rounded,
+              iconColor: Colors.purpleAccent,
+              obscure: _obscureDeepgram,
+              isTesting: _testingDeepgram,
+              onToggleObscure: () => setState(() => _obscureDeepgram = !_obscureDeepgram),
+              onSave: _testAndSaveDeepgram,
+            ),
+            const SizedBox(height: 24),
+
+            // --- Application Updates ---
+            _buildUpdateCard(),
+            const SizedBox(height: 24),
+
+            // --- Purge Credentials ---
+            OutlinedButton.icon(
+              onPressed: () async {
+                final confirm = await showDialog<bool>(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    backgroundColor: AppTheme.darkCard,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+                    title: const Text('Purge All Credentials?'),
+                    content: const Text('This will delete all stored API keys from your hardware keystore.'),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx, false),
+                        child: const Text('Cancel', style: TextStyle(color: Colors.white70)),
+                      ),
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx, true),
+                        style: TextButton.styleFrom(foregroundColor: Colors.redAccent),
+                        child: const Text('Purge All', style: TextStyle(fontWeight: FontWeight.bold)),
+                      ),
+                    ],
+                  ),
                 );
-              }
-            },
-            icon: const Icon(Icons.delete_forever, color: Colors.redAccent),
-            label: const Text('Purge All Credentials from Device', style: TextStyle(color: Colors.redAccent)),
-          ),
-        ],
+
+                if (confirm == true) {
+                  final storage = ref.read(secureStorageProvider);
+                  await storage.deleteGroqKey();
+                  await storage.deleteGeminiKey();
+                  await storage.deleteDeepgramKey();
+                  _groqController.clear();
+                  _geminiController.clear();
+                  _deepgramController.clear();
+                  await ref.read(apiKeysProvider.notifier).loadKeys();
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('All credentials securely purged.'),
+                        backgroundColor: Color(0xFF1E293B),
+                        behavior: SnackBarBehavior.floating,
+                      ),
+                    );
+                  }
+                }
+              },
+              icon: const Icon(Icons.delete_forever_rounded, color: Colors.redAccent, size: 20),
+              label: const Text('Purge All Credentials from Keystore', style: TextStyle(color: Colors.redAccent)),
+              style: OutlinedButton.styleFrom(
+                side: BorderSide(color: Colors.redAccent.withValues(alpha: 0.5)),
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              ),
+            ),
+            const SizedBox(height: 24),
+          ],
+        ),
       ),
     );
   }
@@ -393,43 +492,93 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     required String description,
     required String dashboardUrl,
     required TextEditingController controller,
+    required IconData icon,
+    required Color iconColor,
     required bool obscure,
     required bool isTesting,
     required VoidCallback onToggleObscure,
     required VoidCallback onSave,
   }) {
-    return Card(
+    return Container(
+      decoration: BoxDecoration(
+        color: AppTheme.darkCard,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppTheme.borderSubtle),
+      ),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(18),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-            const SizedBox(height: 4),
-            Text(description, style: const TextStyle(color: Colors.white70, fontSize: 13)),
-            const SizedBox(height: 6),
-            Text(dashboardUrl, style: const TextStyle(color: Colors.cyanAccent, fontSize: 12)),
+            Row(
+              children: [
+                Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: iconColor.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(icon, color: iconColor, size: 20),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: Colors.white)),
+                      const SizedBox(height: 2),
+                      Text(description, style: const TextStyle(color: Colors.white54, fontSize: 12)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
             const SizedBox(height: 12),
+            InkWell(
+              onTap: () async {
+                final uri = Uri.parse(dashboardUrl);
+                if (await canLaunchUrl(uri)) {
+                  await launchUrl(uri, mode: LaunchMode.externalApplication);
+                }
+              },
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(dashboardUrl, style: const TextStyle(color: AppTheme.accentCyan, fontSize: 12, fontWeight: FontWeight.w600)),
+                  const SizedBox(width: 4),
+                  const Icon(Icons.open_in_new_rounded, size: 12, color: AppTheme.accentCyan),
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
             TextField(
               controller: controller,
               obscureText: obscure,
+              style: const TextStyle(fontSize: 14),
               decoration: InputDecoration(
                 hintText: 'Enter API Key',
+                hintStyle: const TextStyle(color: Colors.white30, fontSize: 13),
                 suffixIcon: IconButton(
-                  icon: Icon(obscure ? Icons.visibility : Icons.visibility_off),
+                  icon: Icon(obscure ? Icons.visibility_rounded : Icons.visibility_off_rounded, size: 20, color: Colors.white54),
                   onPressed: onToggleObscure,
                 ),
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 14),
             Align(
               alignment: Alignment.centerRight,
               child: ElevatedButton.icon(
                 onPressed: isTesting ? null : onSave,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.primaryViolet,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                ),
                 icon: isTesting
-                    ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                    : const Icon(Icons.check_circle_outline),
-                label: const Text('Test & Save'),
+                    ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    : const Icon(Icons.check_circle_outline_rounded, size: 16),
+                label: const Text('Test & Save', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
               ),
             ),
           ],
@@ -439,46 +588,56 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Widget _buildUpdateCard() {
-    return Card(
+    return Container(
+      decoration: BoxDecoration(
+        color: AppTheme.darkCard,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppTheme.borderSubtle),
+      ),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(18),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
-                const Icon(Icons.system_update_alt, color: Colors.cyanAccent),
-                const SizedBox(width: 8),
-                const Text('Software Updates', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                const Icon(Icons.system_update_alt_rounded, color: AppTheme.accentCyan, size: 22),
+                const SizedBox(width: 10),
+                const Text('Software Updates', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16, color: Colors.white)),
                 const Spacer(),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
-                    color: Colors.white10,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.white24),
+                    color: AppTheme.darkSurface,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: AppTheme.borderSubtle),
                   ),
                   child: Text(
                     'v$_currentAppVersion',
-                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppTheme.accentCyan),
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 8),
             const Text(
-              'Check for the latest features, engine updates, and bug fixes directly from GitHub Releases. Updates install in-place without removing your existing settings.',
-              style: TextStyle(color: Colors.white70, fontSize: 13, height: 1.4),
+              'Check for the latest features, native engine updates, and bug fixes directly from GitHub Releases.',
+              style: TextStyle(color: Colors.white54, fontSize: 13, height: 1.4),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 14),
             Align(
               alignment: Alignment.centerRight,
               child: ElevatedButton.icon(
                 onPressed: _isCheckingUpdate ? null : _checkForUpdates,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.primaryViolet,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                ),
                 icon: _isCheckingUpdate
-                    ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                    : const Icon(Icons.refresh_rounded),
-                label: Text(_isCheckingUpdate ? 'Checking GitHub...' : 'Check for Updates'),
+                    ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    : const Icon(Icons.refresh_rounded, size: 16),
+                label: Text(_isCheckingUpdate ? 'Checking GitHub...' : 'Check for Updates', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
               ),
             ),
           ],

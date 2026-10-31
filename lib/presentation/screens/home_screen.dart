@@ -7,6 +7,7 @@ import '../../core/constants/enums.dart';
 import '../../core/providers.dart';
 import '../../features/media/media_engine.dart';
 import '../../features/transcription/pipeline_coordinator.dart';
+import '../theme/app_theme.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -22,7 +23,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   bool _isProbing = false;
 
   SourceLanguage _selectedLanguage = SourceLanguage.ja;
-  TranscriptionProviderType _selectedProvider = TranscriptionProviderType.groqWhisperLargeV3;
+  TranscriptionProviderType _selectedProvider = TranscriptionProviderType.gemini25Transcribe;
   TranslationModelType _selectedTranslationModel = TranslationModelType.gemini25Flash;
 
   bool _isProcessing = false;
@@ -53,7 +54,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         setState(() => _isProbing = false);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Failed to probe video: $e'), backgroundColor: Colors.red),
+            SnackBar(
+              content: Text('Failed to probe video: $e'),
+              backgroundColor: Colors.redAccent,
+              behavior: SnackBarBehavior.floating,
+            ),
           );
         }
       }
@@ -91,7 +96,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Subtitles generated successfully! Check library or output directory.')),
+          SnackBar(
+            content: const Row(
+              children: [
+                Icon(Icons.check_circle, color: Colors.greenAccent),
+                SizedBox(width: 8),
+                Expanded(child: Text('Subtitles generated successfully! Check Library tab.')),
+              ],
+            ),
+            backgroundColor: const Color(0xFF1E293B),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ),
         );
       }
     } catch (e) {
@@ -99,10 +115,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         showDialog(
           context: context,
           builder: (ctx) => AlertDialog(
-            title: const Text('Processing Error'),
-            content: Text(e.toString()),
+            backgroundColor: const Color(0xFF1E293B),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+            title: const Row(
+              children: [
+                Icon(Icons.error_outline, color: Colors.redAccent),
+                SizedBox(width: 8),
+                Text('Processing Error'),
+              ],
+            ),
+            content: Text(e.toString(), style: const TextStyle(color: Colors.white70)),
             actions: [
-              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK')),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('OK', style: TextStyle(color: AppTheme.accentCyan, fontWeight: FontWeight.bold)),
+              ),
             ],
           ),
         );
@@ -122,241 +149,525 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final keysState = ref.watch(apiKeysProvider);
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('AI Subtitle Generator'),
-      ),
-      body: ListView(
-        padding: const EdgeInsets.all(20),
-        children: [
-          // --- Select Video Box ---
-          InkWell(
-            onTap: _isProcessing ? null : _pickVideo,
-            borderRadius: BorderRadius.circular(16),
-            child: Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surface,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: const Color(0xFF334155), width: 1.5),
-              ),
-              child: Column(
-                children: [
-                  Icon(
-                    _selectedVideoPath == null ? Icons.video_file_outlined : Icons.check_circle,
-                    size: 48,
-                    color: _selectedVideoPath == null ? Colors.cyanAccent : Colors.greenAccent,
+      backgroundColor: AppTheme.darkBg,
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+          children: [
+            // --- Modern Header Bar ---
+            Row(
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    gradient: AppTheme.brandGradient,
+                    borderRadius: BorderRadius.circular(14),
+                    boxShadow: [
+                      BoxShadow(
+                        color: AppTheme.primaryViolet.withValues(alpha: 0.35),
+                        blurRadius: 14,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 12),
-                  Text(
-                    _selectedVideoPath == null
-                        ? 'Tap to Select a Video File'
-                        : File(_selectedVideoPath!).uri.pathSegments.last,
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                    textAlign: TextAlign.center,
-                  ),
-                  if (_mediaInfo != null) ...[
-                    const SizedBox(height: 6),
+                  child: const Icon(Icons.subtitles_rounded, color: Colors.white, size: 24),
+                ),
+                const SizedBox(width: 14),
+                const Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
                     Text(
-                      'Duration: ${(_mediaInfo!.durationSeconds / 60).toStringAsFixed(1)} min · Tracks: ${_mediaInfo!.audioTracks.length}',
-                      style: const TextStyle(color: Colors.white70, fontSize: 13),
+                      'AI Subtitle Generator',
+                      style: TextStyle(
+                        fontSize: 21,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.5,
+                        color: Colors.white,
+                      ),
+                    ),
+                    Text(
+                      'Edge-Cloud Hybrid Video Transcription',
+                      style: TextStyle(fontSize: 12, color: Colors.white54, fontWeight: FontWeight.w400),
                     ),
                   ],
-                  if (_isProbing) ...[
-                    const SizedBox(height: 8),
-                    const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
-                  ],
-                ],
-              ),
+                ),
+              ],
             ),
-          ),
-          const SizedBox(height: 20),
+            const SizedBox(height: 22),
 
-          // --- Audio Track Selector (if multiple tracks) ---
-          if (_mediaInfo != null && _mediaInfo!.audioTracks.length > 1) ...[
-            const Text('Select Audio Stream', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-            const SizedBox(height: 6),
+            // --- Hero Video Selection Card ---
+            _buildVideoPickerCard(),
+            const SizedBox(height: 20),
+
+            // --- Audio Stream Selector (if multi-track) ---
+            if (_mediaInfo != null && _mediaInfo!.audioTracks.length > 1) ...[
+              _buildSectionTitle('Audio Track Selection', Icons.audiotrack_rounded),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                decoration: BoxDecoration(
+                  color: AppTheme.darkCard,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: AppTheme.borderSubtle),
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<int>(
+                    value: _selectedAudioStreamIndex,
+                    dropdownColor: AppTheme.darkCard,
+                    isExpanded: true,
+                    items: _mediaInfo!.audioTracks.map((t) {
+                      return DropdownMenuItem<int>(
+                        value: t.streamIndex,
+                        child: Text(t.displayName, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+                      );
+                    }).toList(),
+                    onChanged: (val) {
+                      if (val != null) setState(() => _selectedAudioStreamIndex = val);
+                    },
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+            ],
+
+            // --- Spoken Language Selector ---
+            _buildSectionTitle('Spoken Language', Icons.translate_rounded),
+            const SizedBox(height: 8),
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
               decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surface,
-                borderRadius: BorderRadius.circular(12),
+                color: AppTheme.darkCard,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: AppTheme.borderSubtle),
               ),
               child: DropdownButtonHideUnderline(
-                child: DropdownButton<int>(
-                  value: _selectedAudioStreamIndex,
+                child: DropdownButton<SourceLanguage>(
+                  value: _selectedLanguage,
+                  dropdownColor: AppTheme.darkCard,
                   isExpanded: true,
-                  items: _mediaInfo!.audioTracks.map((t) {
-                    return DropdownMenuItem<int>(
-                      value: t.streamIndex,
-                      child: Text(t.displayName),
+                  items: SourceLanguage.values.map((l) {
+                    return DropdownMenuItem<SourceLanguage>(
+                      value: l,
+                      child: Text(l.displayName, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
                     );
                   }).toList(),
                   onChanged: (val) {
-                    if (val != null) setState(() => _selectedAudioStreamIndex = val);
+                    if (val != null) setState(() => _selectedLanguage = val);
                   },
                 ),
               ),
             ),
-            const SizedBox(height: 20),
-          ],
+            const SizedBox(height: 22),
 
-          // --- Language Selection ---
-          const Text('Spoken Language', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-          const SizedBox(height: 6),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14),
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surface,
-              borderRadius: BorderRadius.circular(12),
+            // --- AI Transcription Engine ---
+            _buildSectionTitle('Transcription Model (BYOK)', Icons.psychology_rounded),
+            const SizedBox(height: 8),
+            _buildProviderCard(
+              title: 'Google Gemini Flash',
+              subtitle: 'Multi-lingual contextual audio reasoning',
+              type: TranscriptionProviderType.gemini25Transcribe,
+              badge: 'Gemini 3',
+              icon: Icons.auto_awesome_rounded,
+              iconColor: Colors.cyanAccent,
+              hasKey: keysState.geminiKey?.isNotEmpty == true,
             ),
-            child: DropdownButtonHideUnderline(
-              child: DropdownButton<SourceLanguage>(
-                value: _selectedLanguage,
-                isExpanded: true,
-                items: SourceLanguage.values.map((l) {
-                  return DropdownMenuItem<SourceLanguage>(
-                    value: l,
-                    child: Text(l.displayName),
-                  );
-                }).toList(),
-                onChanged: (val) {
-                  if (val != null) setState(() => _selectedLanguage = val);
-                },
+            _buildProviderCard(
+              title: 'Groq Whisper Large-v3',
+              subtitle: 'Near-instant cloud STT (<8s per chunk)',
+              type: TranscriptionProviderType.groqWhisperLargeV3,
+              badge: 'Ultra-Fast',
+              icon: Icons.bolt_rounded,
+              iconColor: Colors.amberAccent,
+              hasKey: keysState.groqKey?.isNotEmpty == true,
+            ),
+            _buildProviderCard(
+              title: 'Deepgram Nova-3',
+              subtitle: 'Word timestamps & speaker diarization',
+              type: TranscriptionProviderType.deepgramNova3,
+              badge: 'High Accuracy',
+              icon: Icons.mic_rounded,
+              iconColor: Colors.purpleAccent,
+              hasKey: keysState.deepgramKey?.isNotEmpty == true,
+            ),
+            const SizedBox(height: 22),
+
+            // --- Translation Target ---
+            _buildSectionTitle('Translation Mode (Stage 2)', Icons.g_translate_rounded),
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              decoration: BoxDecoration(
+                color: AppTheme.darkCard,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: AppTheme.borderSubtle),
+              ),
+              child: DropdownButtonHideUnderline(
+                child: DropdownButton<TranslationModelType>(
+                  value: _selectedTranslationModel,
+                  dropdownColor: AppTheme.darkCard,
+                  isExpanded: true,
+                  items: TranslationModelType.values.map((m) {
+                    return DropdownMenuItem<TranslationModelType>(
+                      value: m,
+                      child: Text(m.displayName, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+                    );
+                  }).toList(),
+                  onChanged: (val) {
+                    if (val != null) setState(() => _selectedTranslationModel = val);
+                  },
+                ),
               ),
             ),
-          ),
-          const SizedBox(height: 20),
+            const SizedBox(height: 26),
 
-          // --- Provider Selection ---
-          const Text('Transcription Provider (BYOK)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-          const SizedBox(height: 6),
-          _buildProviderOption(
-            title: 'Groq Whisper Large-v3',
-            subtitle: 'Ultra-fast speech-to-text (<10s/chunk)',
-            type: TranscriptionProviderType.groqWhisperLargeV3,
-            hasKey: keysState.groqKey?.isNotEmpty == true,
-          ),
-          _buildProviderOption(
-            title: 'Google Gemini 2.5 Flash',
-            subtitle: 'Rich multimodal contextual understanding',
-            type: TranscriptionProviderType.gemini25Transcribe,
-            hasKey: keysState.geminiKey?.isNotEmpty == true,
-          ),
-          _buildProviderOption(
-            title: 'Deepgram Nova-3 Multilingual',
-            subtitle: 'Accurate word timestamps & diarization',
-            type: TranscriptionProviderType.deepgramNova3,
-            hasKey: keysState.deepgramKey?.isNotEmpty == true,
-          ),
-          const SizedBox(height: 20),
+            // --- Live Processing HUD Card ---
+            if (_isProcessing && _currentProgress != null) ...[
+              _buildProgressCard(),
+              const SizedBox(height: 18),
+            ],
 
-          // --- Translation Model ---
-          const Text('Translation Engine (Stage 2)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-          const SizedBox(height: 6),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14),
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surface,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: DropdownButtonHideUnderline(
-              child: DropdownButton<TranslationModelType>(
-                value: _selectedTranslationModel,
-                isExpanded: true,
-                items: TranslationModelType.values.map((m) {
-                  return DropdownMenuItem<TranslationModelType>(
-                    value: m,
-                    child: Text(m.displayName),
-                  );
-                }).toList(),
-                onChanged: (val) {
-                  if (val != null) setState(() => _selectedTranslationModel = val);
-                },
-              ),
-            ),
-          ),
-          const SizedBox(height: 30),
-
-          // --- Progress Indicator (if active) ---
-          if (_isProcessing && _currentProgress != null) ...[
-            Card(
-              color: const Color(0xFF1E293B),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          _currentProgress!.status.displayName,
-                          style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.cyanAccent),
-                        ),
-                        Text(
-                          '${(_currentProgress!.progressPercent * 100).toInt()}%',
-                          style: const TextStyle(fontWeight: FontWeight.bold),
+            // --- Generate Action Button ---
+            Container(
+              height: 56,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(16),
+                gradient: (_isProcessing || _selectedVideoPath == null)
+                    ? null
+                    : AppTheme.brandGradient,
+                boxShadow: (_isProcessing || _selectedVideoPath == null)
+                    ? null
+                    : [
+                        BoxShadow(
+                          color: AppTheme.primaryViolet.withValues(alpha: 0.4),
+                          blurRadius: 18,
+                          offset: const Offset(0, 6),
                         ),
                       ],
-                    ),
-                    const SizedBox(height: 8),
-                    LinearProgressIndicator(
-                      value: _currentProgress!.progressPercent,
-                      backgroundColor: const Color(0xFF334155),
-                      valueColor: const AlwaysStoppedAnimation(Color(0xFF6366F1)),
-                    ),
-                    const SizedBox(height: 8),
+              ),
+              child: ElevatedButton(
+                onPressed: (_isProcessing || _selectedVideoPath == null) ? null : _startProcessing,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: (_isProcessing || _selectedVideoPath == null)
+                      ? const Color(0xFF1E293B)
+                      : Colors.transparent,
+                  shadowColor: Colors.transparent,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    if (_isProcessing)
+                      const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white70),
+                      )
+                    else
+                      const Icon(Icons.closed_caption_rounded, size: 22),
+                    const SizedBox(width: 10),
                     Text(
-                      _currentProgress!.statusMessage,
-                      style: const TextStyle(color: Colors.white70, fontSize: 12),
+                      _isProcessing ? 'Generating Subtitles...' : 'Generate Subtitles (SRT & VTT)',
+                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, letterSpacing: 0.2),
                     ),
                   ],
                 ),
               ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 24),
           ],
+        ),
+      ),
+    );
+  }
 
-          // --- Generate Action Button ---
-          ElevatedButton.icon(
-            onPressed: (_isProcessing || _selectedVideoPath == null) ? null : _startProcessing,
-            icon: const Icon(Icons.subtitles),
-            label: const Text('Generate Subtitles (SRT & VTT)'),
+  Widget _buildSectionTitle(String title, IconData icon) {
+    return Row(
+      children: [
+        Icon(icon, size: 17, color: AppTheme.accentCyan),
+        const SizedBox(width: 8),
+        Text(
+          title,
+          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14, letterSpacing: 0.1, color: Colors.white),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildVideoPickerCard() {
+    final hasVideo = _selectedVideoPath != null;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: AppTheme.darkCard,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: hasVideo ? AppTheme.primaryViolet : AppTheme.borderSubtle,
+          width: hasVideo ? 1.5 : 1.0,
+        ),
+        boxShadow: hasVideo
+            ? [
+                BoxShadow(
+                  color: AppTheme.primaryViolet.withValues(alpha: 0.15),
+                  blurRadius: 16,
+                  offset: const Offset(0, 4),
+                )
+              ]
+            : null,
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: _isProcessing ? null : _pickVideo,
+          borderRadius: BorderRadius.circular(20),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 22),
+            child: Column(
+              children: [
+                Container(
+                  width: 58,
+                  height: 58,
+                  decoration: BoxDecoration(
+                    color: hasVideo
+                        ? Colors.greenAccent.withValues(alpha: 0.12)
+                        : AppTheme.primaryViolet.withValues(alpha: 0.12),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    hasVideo ? Icons.check_circle_rounded : Icons.video_file_outlined,
+                    size: 32,
+                    color: hasVideo ? Colors.greenAccent : AppTheme.accentCyan,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Text(
+                  hasVideo
+                      ? File(_selectedVideoPath!).uri.pathSegments.last
+                      : 'Choose Video to Generate Subtitles',
+                  style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16, color: Colors.white),
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  hasVideo ? 'Tap to change video' : 'Supports MP4, MKV, MOV, WEBM & AVI',
+                  style: const TextStyle(color: Colors.white54, fontSize: 13),
+                ),
+                if (_isProbing) ...[
+                  const SizedBox(height: 14),
+                  const Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+                      SizedBox(width: 10),
+                      Text('Probing video & audio streams...', style: TextStyle(color: Colors.white70, fontSize: 12)),
+                    ],
+                  ),
+                ],
+                if (_mediaInfo != null && !_isProbing) ...[
+                  const SizedBox(height: 14),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 6,
+                    alignment: WrapAlignment.center,
+                    children: [
+                      _buildPill(Icons.timer_outlined, '${(_mediaInfo!.durationSeconds / 60).toStringAsFixed(1)} min'),
+                      _buildPill(Icons.audiotrack_outlined, '${_mediaInfo!.audioTracks.length} Audio Track${_mediaInfo!.audioTracks.length > 1 ? "s" : ""}'),
+                      _buildPill(Icons.folder_outlined, '${(_mediaInfo!.fileSizeBytes / (1024 * 1024)).toStringAsFixed(1)} MB'),
+                    ],
+                  ),
+                ],
+              ],
+            ),
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPill(IconData icon, String label) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: AppTheme.darkSurface.withValues(alpha: 0.8),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppTheme.borderSubtle),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: AppTheme.accentCyan),
+          const SizedBox(width: 5),
+          Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.white70)),
         ],
       ),
     );
   }
 
-  Widget _buildProviderOption({
+  Widget _buildProviderCard({
     required String title,
     required String subtitle,
     required TranscriptionProviderType type,
+    required String badge,
+    required IconData icon,
+    required Color iconColor,
     required bool hasKey,
   }) {
     final isSelected = _selectedProvider == type;
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      color: isSelected ? const Color(0xFF2E3A52) : const Color(0xFF1E293B),
-      child: ListTile(
-        title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-        subtitle: Text(subtitle, style: const TextStyle(fontSize: 12, color: Colors.white70)),
-        leading: Icon(
-          isSelected ? Icons.radio_button_checked : Icons.radio_button_unchecked,
-          color: isSelected ? Theme.of(context).colorScheme.primary : Colors.white54,
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      decoration: BoxDecoration(
+        color: isSelected ? const Color(0xFF1B2438) : AppTheme.darkCard,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isSelected ? AppTheme.primaryViolet : AppTheme.borderSubtle,
+          width: isSelected ? 1.8 : 1.0,
         ),
-        onTap: () => setState(() => _selectedProvider = type),
-        trailing: hasKey
-            ? const Chip(
-                label: Text('Key Ready', style: TextStyle(fontSize: 11, color: Colors.greenAccent)),
-                backgroundColor: Color(0xFF14532D),
-                visualDensity: VisualDensity.compact,
-              )
-            : const Chip(
-                label: Text('No Key', style: TextStyle(fontSize: 11, color: Colors.orangeAccent)),
-                backgroundColor: Color(0xFF7C2D12),
-                visualDensity: VisualDensity.compact,
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () => setState(() => _selectedProvider = type),
+          borderRadius: BorderRadius.circular(16),
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Row(
+              children: [
+                Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    color: iconColor.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(icon, color: iconColor, size: 22),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              title,
+                              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: Colors.white),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: AppTheme.darkSurface,
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              badge,
+                              style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: AppTheme.accentCyan),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 3),
+                      Text(subtitle, style: const TextStyle(fontSize: 12, color: Colors.white54)),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: hasKey
+                            ? const Color(0xFF064E3B).withValues(alpha: 0.7)
+                            : const Color(0xFF7C2D12).withValues(alpha: 0.7),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        hasKey ? 'Key Ready' : 'No Key',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: hasKey ? Colors.greenAccent : Colors.orangeAccent,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildProgressCard() {
+    final progress = _currentProgress!;
+    final percent = (progress.progressPercent * 100).toInt();
+
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: AppTheme.darkCard,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppTheme.primaryViolet.withValues(alpha: 0.5)),
+        boxShadow: [
+          BoxShadow(
+            color: AppTheme.primaryViolet.withValues(alpha: 0.15),
+            blurRadius: 18,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  const SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.accentCyan),
+                  ),
+                  const SizedBox(width: 10),
+                  Text(
+                    progress.status.displayName,
+                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: AppTheme.accentCyan),
+                  ),
+                ],
               ),
+              Text(
+                '$percent%',
+                style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: Colors.white),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: LinearProgressIndicator(
+              value: progress.progressPercent,
+              minHeight: 8,
+              backgroundColor: const Color(0xFF1E293B),
+              valueColor: const AlwaysStoppedAnimation(AppTheme.primaryViolet),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            progress.statusMessage,
+            style: const TextStyle(color: Colors.white70, fontSize: 12, height: 1.3),
+          ),
+        ],
       ),
     );
   }

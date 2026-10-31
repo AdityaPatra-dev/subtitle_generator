@@ -16,6 +16,21 @@ void main() {
   );
 }
 
+class ModernAppScrollBehavior extends MaterialScrollBehavior {
+  const ModernAppScrollBehavior();
+
+  @override
+  ScrollPhysics getScrollPhysics(BuildContext context) {
+    return const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics());
+  }
+
+  @override
+  Widget buildOverscrollIndicator(BuildContext context, Widget child, ScrollableDetails details) {
+    // Disable the Android 12 stretching overscroll effect that distorts the entire screen
+    return child;
+  }
+}
+
 class SubtitleGeneratorApp extends StatelessWidget {
   const SubtitleGeneratorApp({super.key});
 
@@ -25,6 +40,7 @@ class SubtitleGeneratorApp extends StatelessWidget {
       title: 'AI Subtitle Generator',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.darkTheme,
+      scrollBehavior: const ModernAppScrollBehavior(),
       home: const MainNavigationShell(),
     );
   }
