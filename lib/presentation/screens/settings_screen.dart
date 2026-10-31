@@ -23,7 +23,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   final UpdateCheckerService _updateChecker = UpdateCheckerService();
   bool _isCheckingUpdate = false;
-  String _currentAppVersion = '1.0.3+4';
+  String _currentAppVersion = '1.0.4+5';
 
   bool _obscureGroq = true;
   bool _obscureGemini = true;
@@ -146,6 +146,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     style: const TextStyle(color: Colors.white60, fontSize: 12),
                   ),
                 ],
+                const SizedBox(height: 10),
+                const Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.info_outline_rounded, size: 14, color: Colors.white38),
+                    SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'Updates preserve your settings and history.',
+                        style: TextStyle(fontSize: 11, color: Colors.white38),
+                      ),
+                    ),
+                  ],
+                ),
                 if (isDownloading) ...[
                   const SizedBox(height: 16),
                   LinearProgressIndicator(value: downloadProgress > 0 ? downloadProgress : null),
