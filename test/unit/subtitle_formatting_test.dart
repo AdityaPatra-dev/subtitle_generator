@@ -48,6 +48,51 @@ void main() {
       expect(lines[0], 'Welcome to Tokyo, we hope you enjoy');
       expect(lines[1], 'your visit today at the tower!');
     });
+
+    test('breakLongSegment breaks Chinese donghua paragraph without spaces into short cues', () {
+      const cjkParagraph = '王林深吸口气，踏入恒岳派山门。四周灵气浓郁，群峰隐于云雾之中。他心中暗下决心，定要踏上修仙长生之路。';
+      final cues = SubtitleLineBreaker.breakLongSegment(
+        startSeconds: 0.0,
+        endSeconds: 15.0,
+        text: cjkParagraph,
+        startingIndex: 1,
+      );
+
+      expect(cues.length >= 2, true);
+      for (final cue in cues) {
+        expect(cue.text.isNotEmpty, true);
+        expect(cue.text.length <= 30, true);
+      }
+    });
+
+    test('breakLongSegment breaks a long paragraph into multiple timed cues', () {
+      const paragraph =
+          'Wang Lin stood on the mountaintop looking at the ancient sect below. '
+          'He knew that the path of cultivation was filled with endless perils. '
+          'Yet he had no choice but to step forward and defy the heavens themselves.';
+
+      final cues = SubtitleLineBreaker.breakLongSegment(
+        startSeconds: 10.0,
+        endSeconds: 25.0,
+        text: paragraph,
+        startingIndex: 1,
+      );
+
+      // Should break into multiple short cues rather than one giant paragraph
+      expect(cues.length >= 2, true);
+      expect(cues.first.startSeconds, 10.0);
+      expect(cues.last.endSeconds, 25.0);
+
+      for (final cue in cues) {
+        expect(cue.text.isNotEmpty, true);
+        expect(cue.endSeconds > cue.startSeconds, true);
+        // Each cue must not exceed max character line constraints
+        final lines = cue.text.split('\n');
+        for (final line in lines) {
+          expect(line.length <= SubtitleLineBreaker.maxCharactersPerLine, true);
+        }
+      }
+    });
   });
 
   group('SubtitleSerializer', () {

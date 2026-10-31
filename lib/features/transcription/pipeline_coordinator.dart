@@ -24,6 +24,9 @@ class PipelineProgress {
   final int totalChunks;
   final double progressPercent;
   final String statusMessage;
+  final Duration? elapsedTime;
+  final Duration? estimatedRemainingTime;
+  final int? extractedAudioSizeBytes;
 
   const PipelineProgress({
     required this.jobId,
@@ -32,7 +35,34 @@ class PipelineProgress {
     required this.totalChunks,
     required this.progressPercent,
     required this.statusMessage,
+    this.elapsedTime,
+    this.estimatedRemainingTime,
+    this.extractedAudioSizeBytes,
   });
+
+  String get elapsedFormatted {
+    if (elapsedTime == null) return '00:00';
+    final m = elapsedTime!.inMinutes.toString().padLeft(2, '0');
+    final s = (elapsedTime!.inSeconds % 60).toString().padLeft(2, '0');
+    return '$m:$s';
+  }
+
+  String get etaFormatted {
+    if (estimatedRemainingTime == null || estimatedRemainingTime!.inSeconds <= 0) {
+      return 'calculating...';
+    }
+    final sec = estimatedRemainingTime!.inSeconds;
+    if (sec < 60) return '~${sec}s remaining';
+    final m = sec ~/ 60;
+    final s = sec % 60;
+    return '~${m}m ${s}s remaining';
+  }
+
+  String get audioSizeFormatted {
+    if (extractedAudioSizeBytes == null || extractedAudioSizeBytes! <= 0) return '';
+    final mb = extractedAudioSizeBytes! / (1024 * 1024);
+    return '${mb.toStringAsFixed(1)} MB (MP3)';
+  }
 }
 
 class PipelineCoordinator {
@@ -52,9 +82,10 @@ class PipelineCoordinator {
     required this.translationService,
   });
 
-  /// Starts processing a long video file through the full Edge-Cloud hybrid pipeline
+  /// Starts processing a video file through the full Edge-Cloud hybrid pipeline
   Stream<PipelineProgress> processVideo({
     required String videoPath,
+    String? originalFilename,
     required int audioStreamIndex,
     required SourceLanguage sourceLang,
     required TranscriptionProviderType providerType,
@@ -63,11 +94,23 @@ class PipelineCoordinator {
     required String outputDir,
     bool exportVtt = true,
   }) async* {
+    final stopwatch = Stopwatch()..start();
     final jobId = const Uuid().v4();
     final videoFile = File(videoPath);
-    final filename = p.basename(videoPath);
+    final filename = (originalFilename != null && originalFilename.trim().isNotEmpty)
+        ? originalFilename.trim()
+        : p.basename(videoPath);
     final fileSizeBytes = await videoFile.length();
     final now = DateTime.now().millisecondsSinceEpoch;
+
+    Duration? computeEta(double progress) {
+      if (progress <= 0.08) return null;
+      final elapsed = stopwatch.elapsed;
+      final totalEst = elapsed.inMilliseconds * (1.0 / progress);
+      final remainingMs = (totalEst - elapsed.inMilliseconds).round();
+      if (remainingMs <= 0) return Duration.zero;
+      return Duration(milliseconds: remainingMs);
+    }
 
     // Retrieve BYOK API Key
     String? apiKey;
@@ -118,7 +161,9 @@ class PipelineCoordinator {
       currentChunk: 0,
       totalChunks: 0,
       progressPercent: 0.05,
-      statusMessage: 'Probing media tracks...',
+      statusMessage: 'Probing media streams & tracks...',
+      elapsedTime: stopwatch.elapsed,
+      estimatedRemainingTime: null,
     );
 
     // 2. EXTRACTING AUDIO
@@ -128,8 +173,10 @@ class PipelineCoordinator {
       status: JobStatus.extractingAudio,
       currentChunk: 0,
       totalChunks: 0,
-      progressPercent: 0.10,
-      statusMessage: 'Extracting & filtering audio (16kHz mono, EBU R128)...',
+      progressPercent: 0.12,
+      statusMessage: 'Extracting clean audio track (16kHz mono, MP3)...',
+      elapsedTime: stopwatch.elapsed,
+      estimatedRemainingTime: computeEta(0.12),
     );
 
     final jobTempDir = Directory(p.join(tempWorkDir, jobId));
@@ -143,11 +190,25 @@ class PipelineCoordinator {
       config: const AudioExtractionConfig(),
     );
 
+    final extractedAudioBytes = extractionResult.fileSizeBytes;
+
     await db.updateJob(JobsCompanion(
       id: Value(jobId),
       durationSeconds: Value(extractionResult.durationSeconds),
       updatedAt: Value(BigInt.from(DateTime.now().millisecondsSinceEpoch)),
     ));
+
+    yield PipelineProgress(
+      jobId: jobId,
+      status: JobStatus.extractingAudio,
+      currentChunk: 0,
+      totalChunks: 0,
+      progressPercent: 0.18,
+      statusMessage: 'Audio extracted (${(extractedAudioBytes / (1024 * 1024)).toStringAsFixed(1)} MB). Analyzing speech...',
+      elapsedTime: stopwatch.elapsed,
+      estimatedRemainingTime: computeEta(0.18),
+      extractedAudioSizeBytes: extractedAudioBytes,
+    );
 
     // 3. CHUNKING with Silence-Aware VAD
     await _updateJobStatus(jobId, JobStatus.chunking);
@@ -156,8 +217,11 @@ class PipelineCoordinator {
       status: JobStatus.chunking,
       currentChunk: 0,
       totalChunks: 0,
-      progressPercent: 0.20,
+      progressPercent: 0.22,
       statusMessage: 'Detecting speech silence intervals...',
+      elapsedTime: stopwatch.elapsed,
+      estimatedRemainingTime: computeEta(0.22),
+      extractedAudioSizeBytes: extractedAudioBytes,
     );
 
     final silenceStderr = await mediaEngine.detectSilence(audioPath: fullAudioPath);
@@ -211,17 +275,26 @@ class PipelineCoordinator {
     final List<TranscriptSegmentsCompanion> allSegmentsToInsert = [];
     int globalSegmentIndex = 0;
 
+    const double transcriptionStartProgress = 0.28;
+    const double transcriptionEndProgress = 0.82;
+    const double transcriptionSpan = transcriptionEndProgress - transcriptionStartProgress;
+
     for (int i = 0; i < totalChunks; i++) {
       final chunkId = '${jobId}_chunk_$i';
       final chunkPath = chunkPaths[i];
+
+      final currentChunkProgress = transcriptionStartProgress + (transcriptionSpan * (i / totalChunks));
 
       yield PipelineProgress(
         jobId: jobId,
         status: JobStatus.transcribing,
         currentChunk: i + 1,
         totalChunks: totalChunks,
-        progressPercent: 0.25 + (0.45 * (i / totalChunks)),
+        progressPercent: currentChunkProgress,
         statusMessage: 'Transcribing chunk ${i + 1} of $totalChunks with ${providerType.displayName}...',
+        elapsedTime: stopwatch.elapsed,
+        estimatedRemainingTime: computeEta(currentChunkProgress),
+        extractedAudioSizeBytes: extractedAudioBytes,
       );
 
       final chunkRecord = (await db.getChunksForJob(jobId)).firstWhere((c) => c.id == chunkId);
@@ -278,6 +351,19 @@ class PipelineCoordinator {
           await chunkFile.delete();
         }
       } catch (_) {}
+
+      final afterChunkProgress = transcriptionStartProgress + (transcriptionSpan * ((i + 1) / totalChunks));
+      yield PipelineProgress(
+        jobId: jobId,
+        status: JobStatus.transcribing,
+        currentChunk: i + 1,
+        totalChunks: totalChunks,
+        progressPercent: afterChunkProgress,
+        statusMessage: 'Processed chunk ${i + 1} of $totalChunks (${result.segments.length} cues detected)',
+        elapsedTime: stopwatch.elapsed,
+        estimatedRemainingTime: computeEta(afterChunkProgress),
+        extractedAudioSizeBytes: extractedAudioBytes,
+      );
     }
 
     // Persist all segments
@@ -301,8 +387,11 @@ class PipelineCoordinator {
         status: JobStatus.translating,
         currentChunk: totalChunks,
         totalChunks: totalChunks,
-        progressPercent: 0.75,
+        progressPercent: 0.85,
         statusMessage: 'Translating subtitles to English with ${translationModel.displayName}...',
+        elapsedTime: stopwatch.elapsed,
+        estimatedRemainingTime: computeEta(0.85),
+        extractedAudioSizeBytes: extractedAudioBytes,
       );
 
       final inputs = segmentsFromDb
@@ -320,31 +409,34 @@ class PipelineCoordinator {
       }
     }
 
-    // 6. FORMATTING Subtitles (SRT & VTT)
+    // 6. FORMATTING Subtitles (SRT & VTT) with smart paragraph breaker
     await _updateJobStatus(jobId, JobStatus.formatting);
     yield PipelineProgress(
       jobId: jobId,
       status: JobStatus.formatting,
       currentChunk: totalChunks,
       totalChunks: totalChunks,
-      progressPercent: 0.90,
-      statusMessage: 'Applying Netflix/BBC formatting rules & generating files...',
+      progressPercent: 0.92,
+      statusMessage: 'Balancing cues & formatting SRT/VTT lines...',
+      elapsedTime: stopwatch.elapsed,
+      estimatedRemainingTime: computeEta(0.92),
+      extractedAudioSizeBytes: extractedAudioBytes,
     );
 
     final finalSegments = await db.getSegmentsForJob(jobId);
     final List<SubtitleCue> cues = [];
+    int cueIndex = 1;
 
-    for (int i = 0; i < finalSegments.length; i++) {
-      final seg = finalSegments[i];
+    for (final seg in finalSegments) {
       final rawText = seg.translatedText?.isNotEmpty == true ? seg.translatedText! : seg.sourceText;
-      final formattedText = SubtitleLineBreaker.formatCueText(rawText);
-
-      cues.add(SubtitleCue(
-        index: i + 1,
+      final subCues = SubtitleLineBreaker.breakLongSegment(
         startSeconds: seg.startSeconds,
         endSeconds: seg.endSeconds,
-        text: formattedText,
-      ));
+        text: rawText,
+        startingIndex: cueIndex,
+      );
+      cues.addAll(subCues);
+      cueIndex += subCues.length;
     }
 
     final srtContent = SubtitleSerializer.toSrt(cues);
@@ -390,7 +482,10 @@ class PipelineCoordinator {
       currentChunk: totalChunks,
       totalChunks: totalChunks,
       progressPercent: 1.0,
-      statusMessage: 'Completed! Subtitles saved to ${srtFile.path}',
+      statusMessage: 'Completed in ${stopwatch.elapsed.inSeconds}s! Subtitles saved to ${srtFile.path}',
+      elapsedTime: stopwatch.elapsed,
+      estimatedRemainingTime: Duration.zero,
+      extractedAudioSizeBytes: extractedAudioBytes,
     );
   }
 
@@ -402,4 +497,3 @@ class PipelineCoordinator {
     ));
   }
 }
-

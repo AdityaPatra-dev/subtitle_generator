@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'security/secure_storage_service.dart';
 import 'storage/database.dart';
@@ -7,6 +8,9 @@ import '../features/media/process_media_engine.dart';
 import '../features/media/ffmpeg_kit_media_engine.dart';
 import '../features/translation/translation_service.dart';
 import '../features/transcription/pipeline_coordinator.dart';
+
+// Theme Mode Provider (Light/Dark mode toggle)
+final themeModeProvider = StateProvider<ThemeMode>((ref) => ThemeMode.dark);
 
 // Database Provider
 final databaseProvider = Provider<AppDatabase>((ref) {

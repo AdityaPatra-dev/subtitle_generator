@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'core/providers.dart';
 import 'core/storage/database.dart';
 import 'presentation/screens/home_screen.dart';
 import 'presentation/screens/library_screen.dart';
@@ -31,15 +32,19 @@ class ModernAppScrollBehavior extends MaterialScrollBehavior {
   }
 }
 
-class SubtitleGeneratorApp extends StatelessWidget {
+class SubtitleGeneratorApp extends ConsumerWidget {
   const SubtitleGeneratorApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final themeMode = ref.watch(themeModeProvider);
+
     return MaterialApp(
       title: 'AI Subtitle Generator',
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.darkTheme,
+      theme: AppTheme.lightTheme,
+      darkTheme: AppTheme.darkTheme,
+      themeMode: themeMode,
       scrollBehavior: const ModernAppScrollBehavior(),
       home: const MainNavigationShell(),
     );

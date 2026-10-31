@@ -2,7 +2,9 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:open_filex/open_filex.dart';
 import '../../core/providers.dart';
+import '../../core/storage/database.dart';
 import '../theme/app_theme.dart';
 import 'editor_screen.dart';
 
@@ -21,6 +23,179 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
   void dispose() {
     _searchController.dispose();
     super.dispose();
+  }
+
+  void _showFileLocationDialog(BuildContext context, SubtitleEntry sub) {
+    final srtFile = File(sub.localSrtPath);
+    final folderPath = srtFile.parent.path;
+    final vttPath = sub.localVttPath;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppTheme.darkCard,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.white24,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: AppTheme.accentCyan.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(Icons.folder_open_rounded, color: AppTheme.accentCyan, size: 20),
+                  ),
+                  const SizedBox(width: 12),
+                  const Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Saved File Location',
+                        style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16, color: Colors.white),
+                      ),
+                      Text(
+                        'Where this subtitle is stored on device',
+                        style: TextStyle(color: Colors.white54, fontSize: 12),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+
+              // Directory Box
+              const Text('Directory Folder:', style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 6),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(
+                  color: AppTheme.darkSurface.withValues(alpha: 0.5),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: AppTheme.borderSubtle),
+                ),
+                child: SelectableText(
+                  folderPath,
+                  style: const TextStyle(fontSize: 12, fontFamily: 'monospace', color: Colors.white),
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              // SRT File Path Box
+              const Text('SRT File:', style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 6),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(
+                  color: AppTheme.darkSurface.withValues(alpha: 0.5),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: AppTheme.borderSubtle),
+                ),
+                child: SelectableText(
+                  sub.localSrtPath,
+                  style: const TextStyle(fontSize: 12, fontFamily: 'monospace', color: AppTheme.accentCyan),
+                ),
+              ),
+
+              if (vttPath != null && vttPath.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                const Text('VTT File:', style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 6),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: AppTheme.darkSurface.withValues(alpha: 0.5),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: AppTheme.borderSubtle),
+                  ),
+                  child: SelectableText(
+                    vttPath,
+                    style: const TextStyle(fontSize: 12, fontFamily: 'monospace', color: Colors.amberAccent),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 18),
+
+              // Actions
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () async {
+                        await Clipboard.setData(ClipboardData(text: sub.localSrtPath));
+                        if (context.mounted) {
+                          Navigator.pop(ctx);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('File path copied to clipboard!'),
+                              backgroundColor: Color(0xFF1E293B),
+                              behavior: SnackBarBehavior.floating,
+                            ),
+                          );
+                        }
+                      },
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: AppTheme.borderSubtle),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      icon: const Icon(Icons.copy_rounded, size: 16, color: Colors.white70),
+                      label: const Text('Copy File Path', style: TextStyle(color: Colors.white70, fontSize: 13)),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: () async {
+                        Navigator.pop(ctx);
+                        if (await srtFile.exists()) {
+                          await OpenFilex.open(srtFile.path);
+                        } else {
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('File not found on storage')),
+                            );
+                          }
+                        }
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppTheme.primaryViolet,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      icon: const Icon(Icons.open_in_new_rounded, size: 16),
+                      label: const Text('Open File', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -204,6 +379,13 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
                               Row(
                                 mainAxisAlignment: MainAxisAlignment.end,
                                 children: [
+                                  // Folder Icon Button: Shows exactly where it is saved
+                                  IconButton(
+                                    icon: const Icon(Icons.folder_open_rounded, color: AppTheme.accentCyan, size: 21),
+                                    tooltip: 'Show File Location',
+                                    onPressed: () => _showFileLocationDialog(context, sub),
+                                  ),
+                                  const SizedBox(width: 4),
                                   OutlinedButton.icon(
                                     onPressed: () async {
                                       final file = File(sub.localSrtPath);
@@ -231,10 +413,10 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
                                     style: OutlinedButton.styleFrom(
                                       side: const BorderSide(color: AppTheme.borderSubtle),
                                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                                     ),
                                     icon: const Icon(Icons.copy_rounded, size: 15, color: Colors.white70),
-                                    label: const Text('Copy SRT', style: TextStyle(fontSize: 12, color: Colors.white70)),
+                                    label: const Text('Copy', style: TextStyle(fontSize: 12, color: Colors.white70)),
                                   ),
                                   const SizedBox(width: 8),
                                   ElevatedButton.icon(

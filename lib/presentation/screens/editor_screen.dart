@@ -1,7 +1,9 @@
 import 'dart:io';
 import 'package:drift/drift.dart' as drift;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:open_filex/open_filex.dart';
 import '../../core/providers.dart';
 import '../../core/storage/database.dart';
 import '../../features/subtitles/subtitle_cue.dart';
@@ -74,9 +76,9 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
         SnackBar(
           content: const Row(
             children: [
-              Icon(Icons.check, color: Colors.greenAccent, size: 18),
+              Icon(Icons.check_circle_rounded, color: Colors.greenAccent, size: 20),
               SizedBox(width: 8),
-              Text('Changes saved successfully!'),
+              Text('Subtitles saved successfully!'),
             ],
           ),
           backgroundColor: const Color(0xFF1E293B),
@@ -85,6 +87,20 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
         ),
       );
     }
+  }
+
+  void _addNewCue() {
+    final lastEnd = _cues.isNotEmpty ? _cues.last.endSeconds : 0.0;
+    setState(() {
+      _cues.add(
+        SubtitleCue(
+          index: _cues.length + 1,
+          startSeconds: lastEnd + 0.1,
+          endSeconds: lastEnd + 3.0,
+          text: 'New subtitle line',
+        ),
+      );
+    });
   }
 
   void _nudgeStart(int index, double deltaSeconds) {
@@ -155,6 +171,138 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
     });
   }
 
+  void _showLocationDialog(BuildContext context) {
+    final file = File(widget.subtitle.localSrtPath);
+    final folderPath = file.parent.path;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppTheme.darkCard,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.white24,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: AppTheme.accentCyan.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(Icons.folder_open_rounded, color: AppTheme.accentCyan, size: 20),
+                  ),
+                  const SizedBox(width: 12),
+                  const Text(
+                    'Subtitle File Location',
+                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16, color: Colors.white),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              const Text('Folder Directory:', style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 6),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppTheme.darkSurface.withValues(alpha: 0.5),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: AppTheme.borderSubtle),
+                ),
+                child: SelectableText(
+                  folderPath,
+                  style: const TextStyle(fontSize: 12, fontFamily: 'monospace', color: Colors.white),
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Text('SRT File Path:', style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 6),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppTheme.darkSurface.withValues(alpha: 0.5),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: AppTheme.borderSubtle),
+                ),
+                child: SelectableText(
+                  widget.subtitle.localSrtPath,
+                  style: const TextStyle(fontSize: 12, fontFamily: 'monospace', color: AppTheme.accentCyan),
+                ),
+              ),
+              const SizedBox(height: 18),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () async {
+                        await Clipboard.setData(ClipboardData(text: widget.subtitle.localSrtPath));
+                        if (context.mounted) {
+                          Navigator.pop(ctx);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('File path copied to clipboard!'),
+                              backgroundColor: Color(0xFF1E293B),
+                              behavior: SnackBarBehavior.floating,
+                            ),
+                          );
+                        }
+                      },
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: AppTheme.borderSubtle),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      icon: const Icon(Icons.copy_rounded, size: 16, color: Colors.white70),
+                      label: const Text('Copy Path', style: TextStyle(color: Colors.white70)),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: () async {
+                        Navigator.pop(ctx);
+                        if (await file.exists()) {
+                          await OpenFilex.open(file.path);
+                        }
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppTheme.primaryViolet,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      icon: const Icon(Icons.open_in_new_rounded, size: 16),
+                      label: const Text('Open File', style: TextStyle(fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -166,13 +314,20 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
           overflow: TextOverflow.ellipsis,
         ),
         actions: [
+          // Folder icon button showing file location
+          IconButton(
+            icon: const Icon(Icons.folder_open_rounded, color: AppTheme.accentCyan, size: 22),
+            tooltip: 'Show File Location',
+            onPressed: () => _showLocationDialog(context),
+          ),
+          const SizedBox(width: 4),
           Padding(
             padding: const EdgeInsets.only(right: 12),
             child: ElevatedButton.icon(
               onPressed: _isSaving ? null : _saveChanges,
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppTheme.primaryViolet,
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
               ),
               icon: _isSaving
@@ -183,6 +338,12 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
           ),
         ],
       ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _addNewCue,
+        backgroundColor: AppTheme.primaryViolet,
+        icon: const Icon(Icons.add_rounded, color: Colors.white),
+        label: const Text('Add Line', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+      ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator(color: AppTheme.accentCyan))
           : _cues.isEmpty
@@ -190,7 +351,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                   child: Text('No subtitle cues found.', style: TextStyle(color: Colors.white60)),
                 )
               : ListView.builder(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 80),
                   itemCount: _cues.length,
                   itemBuilder: (context, i) {
                     final cue = _cues[i];
@@ -234,7 +395,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                                 IconButton(
                                   icon: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent, size: 20),
                                   onPressed: () => _deleteCue(i),
-                                  tooltip: 'Delete Cue',
+                                  tooltip: 'Delete Line',
                                   visualDensity: VisualDensity.compact,
                                 ),
                               ],
@@ -272,7 +433,7 @@ class _EditorScreenState extends ConsumerState<EditorScreen> {
                                     visualDensity: VisualDensity.compact,
                                   ),
                                   icon: const Icon(Icons.call_split_rounded, size: 14, color: AppTheme.accentCyan),
-                                  label: const Text('Split', style: TextStyle(fontSize: 11, color: Colors.white70)),
+                                  label: const Text('Split Line', style: TextStyle(fontSize: 11, color: Colors.white70)),
                                 ),
                                 if (i < _cues.length - 1)
                                   OutlinedButton.icon(

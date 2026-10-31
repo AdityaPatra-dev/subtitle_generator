@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'transcription_provider.dart';
 
 class GeminiProvider implements BaseTranscriptionProvider {
@@ -61,20 +62,25 @@ class GeminiProvider implements BaseTranscriptionProvider {
     }
 
     final bytes = await file.readAsBytes();
-    final base64Audio = base64Encode(bytes);
+    final base64Audio = await compute(base64Encode, bytes);
 
     final langPrompt = (sourceLanguage != null && sourceLanguage.isNotEmpty)
-        ? 'Spoken language is $sourceLanguage.'
-        : 'Detect spoken language automatically.';
+        ? 'The audio spoken language is $sourceLanguage.'
+        : 'Detect the spoken language automatically.';
 
     final payload = {
       'contents': [
         {
           'parts': [
             {
-              'text': 'Transcribe this audio accurately. $langPrompt '
-                  'Provide precise start and end timestamps in seconds for every spoken segment. '
-                  'Do not omit any dialogue.',
+              'text': 'You are a professional video subtitler. Transcribe this audio accurately into short, natural subtitle cues conforming strictly to standard subtitling rules. $langPrompt\n'
+                  'MANDATORY SUBTITLING RULES:\n'
+                  '1. Each subtitle cue MUST be short (typically 2.0 to 5.0 seconds, maximum 6.5 seconds).\n'
+                  '2. NEVER combine long speeches, paragraphs, or multiple unrelated sentences into a single cue.\n'
+                  '3. Break cues naturally at sentence boundaries, pauses, or breath marks.\n'
+                  '4. Each cue text must be concise (max 40 characters per line, at most 2 lines).\n'
+                  '5. Provide accurate start and end timestamps in seconds (e.g. 12.35).\n'
+                  '6. Capture all dialogue faithfully with zero hallucination.',
             },
             {
               'inlineData': {

@@ -342,8 +342,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cardBg = isDark ? AppTheme.darkCard : AppTheme.lightCard;
+    final textPrimary = isDark ? Colors.white : AppTheme.lightTextPrimary;
+    final textSecondary = isDark ? Colors.white54 : AppTheme.lightTextSecondary;
+    final borderCol = isDark ? AppTheme.borderSubtle : AppTheme.lightBorderSubtle;
+
     return Scaffold(
-      backgroundColor: AppTheme.darkBg,
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
@@ -361,21 +366,42 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   child: const Icon(Icons.vpn_key_rounded, color: AppTheme.accentCyan, size: 22),
                 ),
                 const SizedBox(width: 12),
-                const Text(
-                  'AI Providers & BYOK',
-                  style: TextStyle(
-                    fontSize: 21,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: -0.5,
-                    color: Colors.white,
+                Expanded(
+                  child: Text(
+                    'AI Providers & BYOK',
+                    style: TextStyle(
+                      fontSize: 21,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.5,
+                      color: textPrimary,
+                    ),
+                  ),
+                ),
+                Container(
+                  decoration: BoxDecoration(
+                    color: isDark ? AppTheme.darkSurface : AppTheme.lightSurface,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: borderCol),
+                  ),
+                  child: IconButton(
+                    icon: Icon(
+                      isDark ? Icons.light_mode_rounded : Icons.dark_mode_rounded,
+                      color: isDark ? Colors.amberAccent : AppTheme.primaryViolet,
+                      size: 20,
+                    ),
+                    tooltip: isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode',
+                    onPressed: () {
+                      ref.read(themeModeProvider.notifier).state =
+                          isDark ? ThemeMode.light : ThemeMode.dark;
+                    },
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 8),
-            const Text(
+            Text(
               'Your API keys are encrypted using hardware-backed keystores on this device and are sent directly to the AI models.',
-              style: TextStyle(color: Colors.white54, fontSize: 13, height: 1.4),
+              style: TextStyle(color: textSecondary, fontSize: 13, height: 1.4),
             ),
             const SizedBox(height: 22),
 
@@ -391,6 +417,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               isTesting: _testingGroq,
               onToggleObscure: () => setState(() => _obscureGroq = !_obscureGroq),
               onSave: _testAndSaveGroq,
+              cardBg: cardBg,
+              borderCol: borderCol,
+              textPrimary: textPrimary,
+              textSecondary: textSecondary,
             ),
             const SizedBox(height: 16),
 
@@ -406,6 +436,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               isTesting: _testingGemini,
               onToggleObscure: () => setState(() => _obscureGemini = !_obscureGemini),
               onSave: _testAndSaveGemini,
+              cardBg: cardBg,
+              borderCol: borderCol,
+              textPrimary: textPrimary,
+              textSecondary: textSecondary,
             ),
             const SizedBox(height: 16),
 
@@ -421,6 +455,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               isTesting: _testingDeepgram,
               onToggleObscure: () => setState(() => _obscureDeepgram = !_obscureDeepgram),
               onSave: _testAndSaveDeepgram,
+              cardBg: cardBg,
+              borderCol: borderCol,
+              textPrimary: textPrimary,
+              textSecondary: textSecondary,
             ),
             const SizedBox(height: 24),
 
@@ -498,12 +536,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     required bool isTesting,
     required VoidCallback onToggleObscure,
     required VoidCallback onSave,
+    required Color cardBg,
+    required Color borderCol,
+    required Color textPrimary,
+    required Color textSecondary,
   }) {
     return Container(
       decoration: BoxDecoration(
-        color: AppTheme.darkCard,
+        color: cardBg,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppTheme.borderSubtle),
+        border: Border.all(color: borderCol),
       ),
       child: Padding(
         padding: const EdgeInsets.all(18),
@@ -526,9 +568,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: Colors.white)),
+                      Text(title, style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: textPrimary)),
                       const SizedBox(height: 2),
-                      Text(description, style: const TextStyle(color: Colors.white54, fontSize: 12)),
+                      Text(description, style: TextStyle(color: textSecondary, fontSize: 12)),
                     ],
                   ),
                 ),

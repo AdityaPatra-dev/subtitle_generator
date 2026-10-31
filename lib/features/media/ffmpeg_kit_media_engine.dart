@@ -82,6 +82,7 @@ class FfmpegKitMediaEngine implements MediaEngine {
     final List<String> args = [
       '-y',
       '-nostdin',
+      '-threads', '2',
       '-i', inputPath,
       '-vn',
       '-map', '0:$audioStreamIndex',
@@ -156,6 +157,7 @@ class FfmpegKitMediaEngine implements MediaEngine {
       final List<String> args = [
         '-y',
         '-nostdin',
+        '-threads', '2',
         '-ss', currentStart.toStringAsFixed(3),
         '-t', duration.toStringAsFixed(3),
         '-i', inputPath,
@@ -188,6 +190,7 @@ class FfmpegKitMediaEngine implements MediaEngine {
   }) async {
     final List<String> args = [
       '-nostdin',
+      '-threads', '2',
       '-i', audioPath,
       '-af', 'silencedetect=noise=${noiseDb}dB:d=$minDurationSeconds',
       '-f', 'null',

@@ -42,9 +42,9 @@ class VadChunkCalculator {
   static List<double> calculateSplitPoints({
     required double totalDurationSeconds,
     required List<SilenceInterval> silenceIntervals,
-    double targetChunkDurationSeconds = 720.0, // 12 minutes
-    double minChunkDurationSeconds = 600.0,    // 10 minutes
-    double maxChunkDurationSeconds = 840.0,    // 14 minutes
+    double targetChunkDurationSeconds = 120.0, // 2 minutes
+    double minChunkDurationSeconds = 90.0,    // 1.5 minutes
+    double maxChunkDurationSeconds = 150.0,   // 2.5 minutes
   }) {
     // If total audio is shorter than maxChunkDuration, no splits needed
     if (totalDurationSeconds <= maxChunkDurationSeconds) {

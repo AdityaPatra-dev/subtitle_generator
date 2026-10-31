@@ -2,7 +2,9 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+
 import '../../core/constants/enums.dart';
 import '../../core/providers.dart';
 import '../../features/media/media_engine.dart';
@@ -18,11 +20,12 @@ class HomeScreen extends ConsumerStatefulWidget {
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   String? _selectedVideoPath;
+  String? _selectedVideoName;
   MediaInfo? _mediaInfo;
   int _selectedAudioStreamIndex = 0;
   bool _isProbing = false;
 
-  SourceLanguage _selectedLanguage = SourceLanguage.ja;
+  SourceLanguage _selectedLanguage = SourceLanguage.auto;
   TranscriptionProviderType _selectedProvider = TranscriptionProviderType.gemini25Transcribe;
   TranslationModelType _selectedTranslationModel = TranslationModelType.gemini25Flash;
 
@@ -35,18 +38,27 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       allowMultiple: false,
     );
 
-    if (result != null && result.files.single.path != null) {
-      final path = result.files.single.path!;
+    if (result != null && result.files.isNotEmpty && result.files.single.path != null) {
+      final picked = result.files.single;
+      final path = picked.path!;
+      final displayName = (picked.name.isNotEmpty) ? picked.name : p.basename(path);
+
       setState(() {
         _selectedVideoPath = path;
+        _selectedVideoName = displayName;
         _isProbing = true;
       });
 
       try {
         final engine = ref.read(mediaEngineProvider);
         final info = await engine.probe(path);
+
+        // Intelligently resolve the real video filename if Android photo picker assigned a numeric ID
+        final realName = await _resolveRealFilename(path, displayName, info.fileSizeBytes);
+
         setState(() {
           _mediaInfo = info;
+          _selectedVideoName = realName;
           _selectedAudioStreamIndex = info.primaryAudioTrack?.streamIndex ?? 0;
           _isProbing = false;
         });
@@ -65,12 +77,114 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     }
   }
 
+  Future<String> _resolveRealFilename(String path, String currentName, int fileSizeBytes) async {
+    final cleanName = currentName.trim();
+    // If it's already a descriptive name and not just digits (e.g. 108.mp4 or 1000049814.mp4)
+    final isNumeric = RegExp(r'^\d+(\.\w+)?$').hasMatch(cleanName);
+    if (!isNumeric && cleanName.isNotEmpty) {
+      return cleanName;
+    }
+
+    // Check if a file with identical size exists in standard storage directories
+    try {
+      final dirsToCheck = [
+        Directory('/storage/emulated/0/Movies'),
+        Directory('/storage/emulated/0/Download'),
+        Directory('/storage/emulated/0/DCIM/Camera'),
+      ];
+
+      for (final dir in dirsToCheck) {
+        if (await dir.exists()) {
+          await for (final entity in dir.list(followLinks: false)) {
+            if (entity is File) {
+              final len = await entity.length();
+              if (len == fileSizeBytes) {
+                return p.basename(entity.path);
+              }
+            }
+          }
+        }
+      }
+    } catch (_) {}
+
+    return cleanName;
+  }
+
+  void _showRenameDialog() {
+    final controller = TextEditingController(text: p.basenameWithoutExtension(_selectedVideoName ?? 'video'));
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Theme.of(context).brightness == Brightness.dark ? AppTheme.darkCard : Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: const Row(
+          children: [
+            Icon(Icons.edit_note_rounded, color: AppTheme.accentCyan),
+            SizedBox(width: 8),
+            Text('Subtitle & Video Name'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Enter the name to use for your generated .srt and .vtt files:',
+              style: TextStyle(fontSize: 13, color: Colors.white70),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: controller,
+              autofocus: true,
+              decoration: const InputDecoration(
+                suffixText: '.srt',
+                hintText: 'e.g. Renegade Immortal Ep 158',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel', style: TextStyle(color: Colors.white60)),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final newName = controller.text.trim();
+              if (newName.isNotEmpty) {
+                final ext = p.extension(_selectedVideoName ?? '.mp4');
+                setState(() {
+                  _selectedVideoName = '$newName$ext';
+                });
+              }
+              Navigator.pop(ctx);
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryViolet),
+            child: const Text('Set Name'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _startProcessing() async {
     if (_selectedVideoPath == null) return;
 
     final coordinator = ref.read(pipelineCoordinatorProvider);
     final tempDir = await getTemporaryDirectory();
-    final outDir = File(_selectedVideoPath!).parent.path;
+
+    // Determine clean output directory
+    String outDir;
+    if (Platform.isAndroid) {
+      final publicDownload = Directory('/storage/emulated/0/Download');
+      if (await publicDownload.exists()) {
+        outDir = publicDownload.path;
+      } else {
+        outDir = (await getApplicationDocumentsDirectory()).path;
+      }
+    } else {
+      outDir = (await getApplicationDocumentsDirectory()).path;
+    }
 
     setState(() {
       _isProcessing = true;
@@ -79,6 +193,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     try {
       final stream = coordinator.processVideo(
         videoPath: _selectedVideoPath!,
+        originalFilename: _selectedVideoName,
         audioStreamIndex: _selectedAudioStreamIndex,
         sourceLang: _selectedLanguage,
         providerType: _selectedProvider,
@@ -97,11 +212,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Row(
+            content: Row(
               children: [
-                Icon(Icons.check_circle, color: Colors.greenAccent),
-                SizedBox(width: 8),
-                Expanded(child: Text('Subtitles generated successfully! Check Library tab.')),
+                const Icon(Icons.check_circle_rounded, color: Colors.greenAccent),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Subtitles for "$_selectedVideoName" generated successfully! Check Library.',
+                  ),
+                ),
               ],
             ),
             backgroundColor: const Color(0xFF1E293B),
@@ -119,9 +238,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
             title: const Row(
               children: [
-                Icon(Icons.error_outline, color: Colors.redAccent),
+                Icon(Icons.error_outline_rounded, color: Colors.redAccent),
                 SizedBox(width: 8),
-                Text('Processing Error'),
+                Text('Processing Error', style: TextStyle(color: Colors.white)),
               ],
             ),
             content: Text(e.toString(), style: const TextStyle(color: Colors.white70)),
@@ -138,88 +257,117 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       if (mounted) {
         setState(() {
           _isProcessing = false;
-          _currentProgress = null;
         });
       }
     }
   }
 
+  void _showLanguagePickerModal(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _SearchableLanguageModal(
+        selected: _selectedLanguage,
+        onSelected: (lang) {
+          setState(() => _selectedLanguage = lang);
+          Navigator.pop(ctx);
+        },
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final keysState = ref.watch(apiKeysProvider);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    final cardBg = isDark ? AppTheme.darkCard : AppTheme.lightCard;
+    final textPrimary = isDark ? Colors.white : AppTheme.lightTextPrimary;
+    final textSecondary = isDark ? Colors.white60 : AppTheme.lightTextSecondary;
+    final borderCol = isDark ? AppTheme.borderSubtle : AppTheme.lightBorderSubtle;
 
     return Scaffold(
-      backgroundColor: AppTheme.darkBg,
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
           children: [
-            // --- Modern Header Bar ---
+            // --- Modern Header Bar with App Logo & Theme Toggle ---
             Row(
               children: [
-                Container(
-                  width: 44,
-                  height: 44,
-                  decoration: BoxDecoration(
-                    gradient: AppTheme.brandGradient,
-                    borderRadius: BorderRadius.circular(14),
-                    boxShadow: [
-                      BoxShadow(
-                        color: AppTheme.primaryViolet.withValues(alpha: 0.35),
-                        blurRadius: 14,
-                        offset: const Offset(0, 4),
+                const AppLogo(size: 44),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'AI Subtitle Generator',
+                        style: TextStyle(
+                          fontSize: 21,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.5,
+                          color: textPrimary,
+                        ),
+                      ),
+                      Text(
+                        'Edge-Cloud Hybrid Video Transcription',
+                        style: TextStyle(fontSize: 12, color: textSecondary, fontWeight: FontWeight.w400),
                       ),
                     ],
                   ),
-                  child: const Icon(Icons.subtitles_rounded, color: Colors.white, size: 24),
                 ),
-                const SizedBox(width: 14),
-                const Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'AI Subtitle Generator',
-                      style: TextStyle(
-                        fontSize: 21,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: -0.5,
-                        color: Colors.white,
-                      ),
+                // Light / Dark Mode Toggle
+                Container(
+                  decoration: BoxDecoration(
+                    color: isDark ? AppTheme.darkSurface : AppTheme.lightSurface,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: borderCol),
+                  ),
+                  child: IconButton(
+                    icon: Icon(
+                      isDark ? Icons.light_mode_rounded : Icons.dark_mode_rounded,
+                      color: isDark ? Colors.amberAccent : AppTheme.primaryViolet,
+                      size: 20,
                     ),
-                    Text(
-                      'Edge-Cloud Hybrid Video Transcription',
-                      style: TextStyle(fontSize: 12, color: Colors.white54, fontWeight: FontWeight.w400),
-                    ),
-                  ],
+                    tooltip: isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode',
+                    onPressed: () {
+                      ref.read(themeModeProvider.notifier).state =
+                          isDark ? ThemeMode.light : ThemeMode.dark;
+                    },
+                  ),
                 ),
               ],
             ),
             const SizedBox(height: 22),
 
             // --- Hero Video Selection Card ---
-            _buildVideoPickerCard(),
+            _buildVideoPickerCard(cardBg, textPrimary, textSecondary, borderCol),
             const SizedBox(height: 20),
 
             // --- Audio Stream Selector (if multi-track) ---
             if (_mediaInfo != null && _mediaInfo!.audioTracks.length > 1) ...[
-              _buildSectionTitle('Audio Track Selection', Icons.audiotrack_rounded),
+              _buildSectionTitle('Audio Track Selection', Icons.audiotrack_rounded, textPrimary),
               const SizedBox(height: 8),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                 decoration: BoxDecoration(
-                  color: AppTheme.darkCard,
+                  color: cardBg,
                   borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: AppTheme.borderSubtle),
+                  border: Border.all(color: borderCol),
                 ),
                 child: DropdownButtonHideUnderline(
                   child: DropdownButton<int>(
                     value: _selectedAudioStreamIndex,
-                    dropdownColor: AppTheme.darkCard,
+                    dropdownColor: cardBg,
                     isExpanded: true,
                     items: _mediaInfo!.audioTracks.map((t) {
                       return DropdownMenuItem<int>(
                         value: t.streamIndex,
-                        child: Text(t.displayName, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+                        child: Text(
+                          t.displayName,
+                          style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: textPrimary),
+                        ),
                       );
                     }).toList(),
                     onChanged: (val) {
@@ -231,37 +379,60 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               const SizedBox(height: 20),
             ],
 
-            // --- Spoken Language Selector ---
-            _buildSectionTitle('Spoken Language', Icons.translate_rounded),
+            // --- Spoken Language Selector (Searchable BottomSheet) ---
+            _buildSectionTitle('Spoken Language', Icons.translate_rounded, textPrimary),
             const SizedBox(height: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-              decoration: BoxDecoration(
-                color: AppTheme.darkCard,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: AppTheme.borderSubtle),
-              ),
-              child: DropdownButtonHideUnderline(
-                child: DropdownButton<SourceLanguage>(
-                  value: _selectedLanguage,
-                  dropdownColor: AppTheme.darkCard,
-                  isExpanded: true,
-                  items: SourceLanguage.values.map((l) {
-                    return DropdownMenuItem<SourceLanguage>(
-                      value: l,
-                      child: Text(l.displayName, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
-                    );
-                  }).toList(),
-                  onChanged: (val) {
-                    if (val != null) setState(() => _selectedLanguage = val);
-                  },
+            InkWell(
+              onTap: () => _showLanguagePickerModal(context),
+              borderRadius: BorderRadius.circular(14),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                decoration: BoxDecoration(
+                  color: cardBg,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: borderCol),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      _selectedLanguage == SourceLanguage.auto ? Icons.auto_awesome : Icons.language_rounded,
+                      color: AppTheme.accentCyan,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        _selectedLanguage.displayName,
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: textPrimary,
+                        ),
+                      ),
+                    ),
+                    if (_selectedLanguage == SourceLanguage.auto) ...[
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: AppTheme.primaryViolet.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: const Text(
+                          'DEFAULT',
+                          style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppTheme.primaryViolet),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                    ],
+                    Icon(Icons.search_rounded, size: 20, color: textSecondary),
+                  ],
                 ),
               ),
             ),
             const SizedBox(height: 22),
 
             // --- AI Transcription Engine ---
-            _buildSectionTitle('Transcription Model (BYOK)', Icons.psychology_rounded),
+            _buildSectionTitle('Transcription Model (BYOK)', Icons.psychology_rounded, textPrimary),
             const SizedBox(height: 8),
             _buildProviderCard(
               title: 'Google Gemini Flash',
@@ -271,6 +442,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               icon: Icons.auto_awesome_rounded,
               iconColor: Colors.cyanAccent,
               hasKey: keysState.geminiKey?.isNotEmpty == true,
+              isDark: isDark,
+              cardBg: cardBg,
+              borderCol: borderCol,
+              textPrimary: textPrimary,
             ),
             _buildProviderCard(
               title: 'Groq Whisper Large-v3',
@@ -280,6 +455,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               icon: Icons.bolt_rounded,
               iconColor: Colors.amberAccent,
               hasKey: keysState.groqKey?.isNotEmpty == true,
+              isDark: isDark,
+              cardBg: cardBg,
+              borderCol: borderCol,
+              textPrimary: textPrimary,
             ),
             _buildProviderCard(
               title: 'Deepgram Nova-3',
@@ -289,28 +468,35 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               icon: Icons.mic_rounded,
               iconColor: Colors.purpleAccent,
               hasKey: keysState.deepgramKey?.isNotEmpty == true,
+              isDark: isDark,
+              cardBg: cardBg,
+              borderCol: borderCol,
+              textPrimary: textPrimary,
             ),
             const SizedBox(height: 22),
 
             // --- Translation Target ---
-            _buildSectionTitle('Translation Mode (Stage 2)', Icons.g_translate_rounded),
+            _buildSectionTitle('Translation Mode (Stage 2)', Icons.g_translate_rounded, textPrimary),
             const SizedBox(height: 8),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
               decoration: BoxDecoration(
-                color: AppTheme.darkCard,
+                color: cardBg,
                 borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: AppTheme.borderSubtle),
+                border: Border.all(color: borderCol),
               ),
               child: DropdownButtonHideUnderline(
                 child: DropdownButton<TranslationModelType>(
                   value: _selectedTranslationModel,
-                  dropdownColor: AppTheme.darkCard,
+                  dropdownColor: cardBg,
                   isExpanded: true,
                   items: TranslationModelType.values.map((m) {
                     return DropdownMenuItem<TranslationModelType>(
                       value: m,
-                      child: Text(m.displayName, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+                      child: Text(
+                        m.displayName,
+                        style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: textPrimary),
+                      ),
                     );
                   }).toList(),
                   onChanged: (val) {
@@ -321,9 +507,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ),
             const SizedBox(height: 26),
 
-            // --- Live Processing HUD Card ---
+            // --- Live Processing HUD Card with Smooth Progress & ETA ---
             if (_isProcessing && _currentProgress != null) ...[
-              _buildProgressCard(),
+              _buildProgressCard(cardBg, textPrimary, textSecondary),
               const SizedBox(height: 18),
             ],
 
@@ -349,7 +535,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 onPressed: (_isProcessing || _selectedVideoPath == null) ? null : _startProcessing,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: (_isProcessing || _selectedVideoPath == null)
-                      ? const Color(0xFF1E293B)
+                      ? (isDark ? const Color(0xFF1E293B) : const Color(0xFFCBD5E1))
                       : Colors.transparent,
                   shadowColor: Colors.transparent,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -361,7 +547,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       const SizedBox(
                         width: 20,
                         height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white70),
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                       )
                     else
                       const Icon(Icons.closed_caption_rounded, size: 22),
@@ -381,28 +567,28 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
-  Widget _buildSectionTitle(String title, IconData icon) {
+  Widget _buildSectionTitle(String title, IconData icon, Color textColor) {
     return Row(
       children: [
         Icon(icon, size: 17, color: AppTheme.accentCyan),
         const SizedBox(width: 8),
         Text(
           title,
-          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14, letterSpacing: 0.1, color: Colors.white),
+          style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14, letterSpacing: 0.1, color: textColor),
         ),
       ],
     );
   }
 
-  Widget _buildVideoPickerCard() {
+  Widget _buildVideoPickerCard(Color cardBg, Color textPrimary, Color textSecondary, Color borderCol) {
     final hasVideo = _selectedVideoPath != null;
 
     return Container(
       decoration: BoxDecoration(
-        color: AppTheme.darkCard,
+        color: cardBg,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
-          color: hasVideo ? AppTheme.primaryViolet : AppTheme.borderSubtle,
+          color: hasVideo ? AppTheme.primaryViolet : borderCol,
           width: hasVideo ? 1.5 : 1.0,
         ),
         boxShadow: hasVideo
@@ -429,39 +615,71 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   height: 58,
                   decoration: BoxDecoration(
                     color: hasVideo
-                        ? Colors.greenAccent.withValues(alpha: 0.12)
-                        : AppTheme.primaryViolet.withValues(alpha: 0.12),
+                        ? Colors.greenAccent.withValues(alpha: 0.15)
+                        : AppTheme.primaryViolet.withValues(alpha: 0.15),
                     shape: BoxShape.circle,
                   ),
                   child: Icon(
                     hasVideo ? Icons.check_circle_rounded : Icons.video_file_outlined,
                     size: 32,
-                    color: hasVideo ? Colors.greenAccent : AppTheme.accentCyan,
+                    color: hasVideo ? Colors.green : AppTheme.accentCyan,
                   ),
                 ),
                 const SizedBox(height: 14),
-                Text(
-                  hasVideo
-                      ? File(_selectedVideoPath!).uri.pathSegments.last
-                      : 'Choose Video to Generate Subtitles',
-                  style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16, color: Colors.white),
-                  textAlign: TextAlign.center,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
+                if (hasVideo) ...[
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Flexible(
+                        child: Text(
+                          _selectedVideoName ?? 'Selected Video',
+                          style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16, color: textPrimary),
+                          textAlign: TextAlign.center,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      IconButton(
+                        icon: const Icon(Icons.edit_rounded, size: 18, color: AppTheme.accentCyan),
+                        tooltip: 'Rename Subtitle Title',
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                        onPressed: _showRenameDialog,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: AppTheme.primaryViolet.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      'Saves as: ${p.basenameWithoutExtension(_selectedVideoName ?? "video")}.srt',
+                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppTheme.accentCyan),
+                    ),
+                  ),
+                ] else
+                  Text(
+                    'Choose Video to Generate Subtitles',
+                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16, color: textPrimary),
+                    textAlign: TextAlign.center,
+                  ),
                 const SizedBox(height: 6),
                 Text(
-                  hasVideo ? 'Tap to change video' : 'Supports MP4, MKV, MOV, WEBM & AVI',
-                  style: const TextStyle(color: Colors.white54, fontSize: 13),
+                  hasVideo ? 'Tap card to choose different video' : 'Supports MP4, MKV, MOV, WEBM & AVI',
+                  style: TextStyle(color: textSecondary, fontSize: 13),
                 ),
                 if (_isProbing) ...[
                   const SizedBox(height: 14),
-                  const Row(
+                  Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
-                      SizedBox(width: 10),
-                      Text('Probing video & audio streams...', style: TextStyle(color: Colors.white70, fontSize: 12)),
+                      const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+                      const SizedBox(width: 10),
+                      Text('Probing video & audio streams...', style: TextStyle(color: textSecondary, fontSize: 12)),
                     ],
                   ),
                 ],
@@ -475,6 +693,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       _buildPill(Icons.timer_outlined, '${(_mediaInfo!.durationSeconds / 60).toStringAsFixed(1)} min'),
                       _buildPill(Icons.audiotrack_outlined, '${_mediaInfo!.audioTracks.length} Audio Track${_mediaInfo!.audioTracks.length > 1 ? "s" : ""}'),
                       _buildPill(Icons.folder_outlined, '${(_mediaInfo!.fileSizeBytes / (1024 * 1024)).toStringAsFixed(1)} MB'),
+                      if (_currentProgress?.extractedAudioSizeBytes != null)
+                        _buildPill(Icons.graphic_eq_rounded, 'Audio: ${_currentProgress!.audioSizeFormatted}'),
                     ],
                   ),
                 ],
@@ -490,16 +710,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
-        color: AppTheme.darkSurface.withValues(alpha: 0.8),
+        color: AppTheme.primaryViolet.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppTheme.borderSubtle),
+        border: Border.all(color: AppTheme.primaryViolet.withValues(alpha: 0.2)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(icon, size: 14, color: AppTheme.accentCyan),
           const SizedBox(width: 5),
-          Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.white70)),
+          Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppTheme.accentCyan)),
         ],
       ),
     );
@@ -513,16 +733,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     required IconData icon,
     required Color iconColor,
     required bool hasKey,
+    required bool isDark,
+    required Color cardBg,
+    required Color borderCol,
+    required Color textPrimary,
   }) {
     final isSelected = _selectedProvider == type;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       decoration: BoxDecoration(
-        color: isSelected ? const Color(0xFF1B2438) : AppTheme.darkCard,
+        color: isSelected
+            ? (isDark ? const Color(0xFF1B2438) : const Color(0xFFEEF2FF))
+            : cardBg,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: isSelected ? AppTheme.primaryViolet : AppTheme.borderSubtle,
+          color: isSelected ? AppTheme.primaryViolet : borderCol,
           width: isSelected ? 1.8 : 1.0,
         ),
       ),
@@ -539,7 +765,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   width: 42,
                   height: 42,
                   decoration: BoxDecoration(
-                    color: iconColor.withValues(alpha: 0.12),
+                    color: iconColor.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Icon(icon, color: iconColor, size: 22),
@@ -554,7 +780,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           Flexible(
                             child: Text(
                               title,
-                              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: Colors.white),
+                              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: textPrimary),
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
@@ -562,7 +788,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                             decoration: BoxDecoration(
-                              color: AppTheme.darkSurface,
+                              color: AppTheme.primaryViolet.withValues(alpha: 0.15),
                               borderRadius: BorderRadius.circular(6),
                             ),
                             child: Text(
@@ -573,32 +799,32 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         ],
                       ),
                       const SizedBox(height: 3),
-                      Text(subtitle, style: const TextStyle(fontSize: 12, color: Colors.white54)),
+                      Text(
+                        subtitle,
+                        style: TextStyle(fontSize: 12, color: isDark ? Colors.white54 : Colors.black54),
+                      ),
                     ],
                   ),
                 ),
                 const SizedBox(width: 8),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: hasKey
-                            ? const Color(0xFF064E3B).withValues(alpha: 0.7)
-                            : const Color(0xFF7C2D12).withValues(alpha: 0.7),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        hasKey ? 'Key Ready' : 'No Key',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          color: hasKey ? Colors.greenAccent : Colors.orangeAccent,
-                        ),
-                      ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: hasKey
+                        ? (isDark ? const Color(0xFF064E3B) : const Color(0xFFDCFCE7))
+                        : (isDark ? const Color(0xFF7C2D12) : const Color(0xFFFEF3C7)),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    hasKey ? 'Key Ready' : 'No Key',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: hasKey
+                          ? (isDark ? Colors.greenAccent : const Color(0xFF15803D))
+                          : (isDark ? Colors.orangeAccent : const Color(0xFFB45309)),
                     ),
-                  ],
+                  ),
                 ),
               ],
             ),
@@ -608,14 +834,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
-  Widget _buildProgressCard() {
+  Widget _buildProgressCard(Color cardBg, Color textPrimary, Color textSecondary) {
     final progress = _currentProgress!;
-    final percent = (progress.progressPercent * 100).toInt();
+    final percent = (progress.progressPercent * 100).clamp(0, 100).toInt();
 
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: AppTheme.darkCard,
+        color: cardBg,
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: AppTheme.primaryViolet.withValues(alpha: 0.5)),
         boxShadow: [
@@ -648,7 +874,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               ),
               Text(
                 '$percent%',
-                style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: Colors.white),
+                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: textPrimary),
               ),
             ],
           ),
@@ -656,16 +882,243 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           ClipRRect(
             borderRadius: BorderRadius.circular(8),
             child: LinearProgressIndicator(
-              value: progress.progressPercent,
+              value: progress.progressPercent.clamp(0.0, 1.0),
               minHeight: 8,
-              backgroundColor: const Color(0xFF1E293B),
+              backgroundColor: AppTheme.primaryViolet.withValues(alpha: 0.15),
               valueColor: const AlwaysStoppedAnimation(AppTheme.primaryViolet),
             ),
           ),
           const SizedBox(height: 10),
           Text(
             progress.statusMessage,
-            style: const TextStyle(color: Colors.white70, fontSize: 12, height: 1.3),
+            style: TextStyle(color: textSecondary, fontSize: 12, height: 1.3),
+          ),
+          const SizedBox(height: 12),
+          // Consistent Time Stats: Elapsed • Estimated Time Remaining (ETA) • Extracted Audio Size
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            decoration: BoxDecoration(
+              color: AppTheme.primaryViolet.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.timer_outlined, size: 14, color: AppTheme.accentCyan),
+                    const SizedBox(width: 4),
+                    Text(
+                      'Elapsed: ${progress.elapsedFormatted}',
+                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: textSecondary),
+                    ),
+                  ],
+                ),
+                Row(
+                  children: [
+                    const Icon(Icons.hourglass_bottom_rounded, size: 14, color: Colors.amberAccent),
+                    const SizedBox(width: 4),
+                    Text(
+                      'ETA: ${progress.etaFormatted}',
+                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Colors.amberAccent),
+                    ),
+                  ],
+                ),
+                if (progress.audioSizeFormatted.isNotEmpty)
+                  Row(
+                    children: [
+                      const Icon(Icons.graphic_eq_rounded, size: 14, color: Colors.greenAccent),
+                      const SizedBox(width: 4),
+                      Text(
+                        progress.audioSizeFormatted,
+                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.greenAccent),
+                      ),
+                    ],
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Searchable Language Modal with Auto-Detect as #1 option and Major Languages at Top
+class _SearchableLanguageModal extends StatefulWidget {
+  final SourceLanguage selected;
+  final ValueChanged<SourceLanguage> onSelected;
+
+  const _SearchableLanguageModal({
+    required this.selected,
+    required this.onSelected,
+  });
+
+  @override
+  State<_SearchableLanguageModal> createState() => _SearchableLanguageModalState();
+}
+
+class _SearchableLanguageModalState extends State<_SearchableLanguageModal> {
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cardBg = isDark ? const Color(0xFF151C2C) : Colors.white;
+    final textPrimary = isDark ? Colors.white : AppTheme.lightTextPrimary;
+    final textSecondary = isDark ? Colors.white60 : AppTheme.lightTextSecondary;
+
+    final q = _searchQuery.trim().toLowerCase();
+    const all = SourceLanguage.values;
+
+    final filtered = q.isEmpty
+        ? all
+        : all.where((lang) {
+            final name = lang.displayName.toLowerCase();
+            final code = lang.bcp47.toLowerCase();
+            return name.contains(q) || code.contains(q);
+          }).toList();
+
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.75,
+      decoration: BoxDecoration(
+        color: cardBg,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: Column(
+        children: [
+          const SizedBox(height: 12),
+          Container(
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+              color: isDark ? Colors.white24 : Colors.black12,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Row(
+              children: [
+                const Icon(Icons.language_rounded, color: AppTheme.accentCyan, size: 22),
+                const SizedBox(width: 10),
+                Text(
+                  'Select Spoken Language',
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 17, color: textPrimary),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          // Search input bar
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: TextField(
+              controller: _searchController,
+              onChanged: (val) => setState(() => _searchQuery = val),
+              decoration: InputDecoration(
+                hintText: 'Search language (e.g. English, Chinese, Hindi)...',
+                prefixIcon: const Icon(Icons.search_rounded, size: 20),
+                suffixIcon: _searchQuery.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear, size: 18),
+                        onPressed: () {
+                          _searchController.clear();
+                          setState(() => _searchQuery = '');
+                        },
+                      )
+                    : null,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Expanded(
+            child: ListView.separated(
+              itemCount: filtered.length,
+              separatorBuilder: (ctx, i) => Divider(
+                height: 1,
+                color: isDark ? AppTheme.borderSubtle : AppTheme.lightBorderSubtle,
+              ),
+              itemBuilder: (ctx, i) {
+                final lang = filtered[i];
+                final isSelected = lang == widget.selected;
+                final isAuto = lang == SourceLanguage.auto;
+                final isMajor = SourceLanguage.majorLanguages.contains(lang);
+
+                return ListTile(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+                  leading: Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: isAuto
+                          ? AppTheme.accentCyan.withValues(alpha: 0.15)
+                          : AppTheme.primaryViolet.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Icon(
+                      isAuto ? Icons.auto_awesome_rounded : Icons.translate_rounded,
+                      color: isAuto ? AppTheme.accentCyan : AppTheme.primaryViolet,
+                      size: 18,
+                    ),
+                  ),
+                  title: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          lang.displayName,
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                            color: isSelected ? AppTheme.accentCyan : textPrimary,
+                          ),
+                        ),
+                      ),
+                      if (isAuto)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: AppTheme.accentCyan.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: const Text(
+                            'RECOMMENDED',
+                            style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: AppTheme.accentCyan),
+                          ),
+                        )
+                      else if (isMajor && _searchQuery.isEmpty)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: AppTheme.primaryViolet.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: const Text(
+                            'POPULAR',
+                            style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: AppTheme.primaryViolet),
+                          ),
+                        ),
+                    ],
+                  ),
+                  subtitle: lang.bcp47.isNotEmpty
+                      ? Text('Code: ${lang.bcp47}', style: TextStyle(color: textSecondary, fontSize: 11))
+                      : null,
+                  trailing: isSelected
+                      ? const Icon(Icons.check_circle_rounded, color: AppTheme.accentCyan, size: 22)
+                      : null,
+                  onTap: () => widget.onSelected(lang),
+                );
+              },
+            ),
           ),
         ],
       ),
