@@ -34,7 +34,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   Future<void> _pickVideo() async {
     final result = await FilePicker.platform.pickFiles(
-      type: FileType.video,
+      type: FileType.custom,
+      allowedExtensions: ['mp4', 'mkv', 'mov', 'webm', 'avi', 'flv', 'ts', 'm4v', '3gp', 'wmv'],
       allowMultiple: false,
     );
 

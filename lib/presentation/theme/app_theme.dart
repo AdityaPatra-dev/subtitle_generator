@@ -32,12 +32,6 @@ class AppTheme {
     end: Alignment.bottomCenter,
   );
 
-  static const LinearGradient lightCardGradient = LinearGradient(
-    colors: [Color(0xFFFFFFFF), Color(0xFFF8FAFC)],
-    begin: Alignment.topCenter,
-    end: Alignment.bottomCenter,
-  );
-
   static ThemeData darkTheme = ThemeData(
     useMaterial3: true,
     brightness: Brightness.dark,
@@ -193,7 +187,7 @@ class AppTheme {
   );
 }
 
-/// Dedicated, high-identity brand logo for AI Subtitle Generator
+/// Official AI Subtitle Generator Logo using the authentic assets/icons/app_icon.png
 class AppLogo extends StatelessWidget {
   final double size;
 
@@ -205,55 +199,22 @@ class AppLogo extends StatelessWidget {
       width: size,
       height: size,
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF6366F1), Color(0xFF06B6D4)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(size * 0.28),
+        borderRadius: BorderRadius.circular(size * 0.24),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF6366F1).withValues(alpha: 0.4),
-            blurRadius: size * 0.35,
-            offset: Offset(0, size * 0.1),
+            color: const Color(0xFF06B6D4).withValues(alpha: 0.4),
+            blurRadius: size * 0.3,
+            offset: Offset(0, size * 0.08),
           ),
         ],
       ),
-      child: Center(
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            // CC Subtitle Box
-            Container(
-              width: size * 0.65,
-              height: size * 0.46,
-              decoration: BoxDecoration(
-                border: Border.all(color: Colors.white, width: 2),
-                borderRadius: BorderRadius.circular(size * 0.12),
-              ),
-              child: Center(
-                child: Text(
-                  'CC',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: size * 0.24,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 1.2,
-                  ),
-                ),
-              ),
-            ),
-            // AI Sparkle Star on top right corner of logo
-            Positioned(
-              top: 2,
-              right: 2,
-              child: Icon(
-                Icons.auto_awesome,
-                color: const Color(0xFFFDE047), // Gold Sparkle
-                size: size * 0.32,
-              ),
-            ),
-          ],
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(size * 0.24),
+        child: Image.asset(
+          'assets/icons/app_icon.png',
+          width: size,
+          height: size,
+          fit: BoxFit.cover,
         ),
       ),
     );
