@@ -1,7 +1,7 @@
 name: subtitle_generator
 description: "Cross-platform AI Subtitle Generator with Smart Edge-Cloud Hybrid Architecture."
 publish_to: 'none'
-version: 1.0.2+3
+version: 1.0.3+4
 
 environment:
   sdk: ^3.12.2

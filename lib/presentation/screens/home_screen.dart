@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -19,6 +20,8 @@ class HomeScreen extends ConsumerStatefulWidget {
 }
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
+  static const _mediaChannel = MethodChannel('com.subtitlegenerator.subtitle_generator/media_resolver');
+
   String? _selectedVideoPath;
   String? _selectedVideoName;
   MediaInfo? _mediaInfo;
@@ -80,33 +83,28 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   Future<String> _resolveRealFilename(String path, String currentName, int fileSizeBytes) async {
     final cleanName = currentName.trim();
-    // If it's already a descriptive name and not just digits (e.g. 108.mp4 or 1000049814.mp4)
-    final isNumeric = RegExp(r'^\d+(\.\w+)?$').hasMatch(cleanName);
+    final nameWithoutExt = p.basenameWithoutExtension(cleanName);
+    final isNumeric = RegExp(r'^\d+$').hasMatch(nameWithoutExt);
+
     if (!isNumeric && cleanName.isNotEmpty) {
       return cleanName;
     }
 
-    // Check if a file with identical size exists in standard storage directories
-    try {
-      final dirsToCheck = [
-        Directory('/storage/emulated/0/Movies'),
-        Directory('/storage/emulated/0/Download'),
-        Directory('/storage/emulated/0/DCIM/Camera'),
-      ];
-
-      for (final dir in dirsToCheck) {
-        if (await dir.exists()) {
-          await for (final entity in dir.list(followLinks: false)) {
-            if (entity is File) {
-              final len = await entity.length();
-              if (len == fileSizeBytes) {
-                return p.basename(entity.path);
-              }
-            }
+    if (Platform.isAndroid) {
+      try {
+        final resolved = await _mediaChannel.invokeMethod<String>('getDisplayNameForMedia', {
+          'mediaId': nameWithoutExt,
+          'fileSizeBytes': fileSizeBytes,
+        });
+        if (resolved != null && resolved.trim().isNotEmpty) {
+          final ext = p.extension(resolved);
+          if (ext.isEmpty) {
+            return '$resolved${p.extension(cleanName)}';
           }
+          return resolved.trim();
         }
-      }
-    } catch (_) {}
+      } catch (_) {}
+    }
 
     return cleanName;
   }
