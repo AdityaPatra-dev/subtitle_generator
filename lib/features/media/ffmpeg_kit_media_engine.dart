@@ -80,6 +80,8 @@ class FfmpegKitMediaEngine implements MediaEngine {
     await outFile.parent.create(recursive: true);
 
     final List<String> args = [
+      '-y',
+      '-nostdin',
       '-i', inputPath,
       '-vn',
       '-map', '0:$audioStreamIndex',
@@ -94,7 +96,6 @@ class FfmpegKitMediaEngine implements MediaEngine {
       '-c:a', 'libmp3lame',
       '-b:a', '${config.bitrateKbps}k',
       outputPath,
-      '-y',
     ]);
 
     final session = await FFmpegKit.executeWithArguments(args);
@@ -133,22 +134,33 @@ class FfmpegKitMediaEngine implements MediaEngine {
   }) async {
     await Directory(outputDir).create(recursive: true);
 
-    final List<String> chunkPaths = [];
-    final totalPoints = splitPointsSeconds.length;
+    final probeInfo = await probe(inputPath);
+    final totalDuration = probeInfo.durationSeconds;
 
-    for (int i = 0; i < totalPoints - 1; i++) {
-      final start = splitPointsSeconds[i];
-      final end = splitPointsSeconds[i + 1];
+    final List<double> allBoundaries = [...splitPointsSeconds];
+    if (allBoundaries.isEmpty || allBoundaries.last < totalDuration) {
+      allBoundaries.add(totalDuration);
+    }
+
+    final List<String> chunkPaths = [];
+    double currentStart = 0.0;
+
+    for (int i = 0; i < allBoundaries.length; i++) {
+      final end = allBoundaries[i];
+      if (end <= currentStart) continue;
+
       final chunkName = '${prefix}_chunk_${i.toString().padLeft(4, '0')}.mp3';
       final chunkPath = p.join(outputDir, chunkName);
+      final duration = end - currentStart;
 
       final List<String> args = [
-        '-ss', start.toStringAsFixed(3),
-        '-to', end.toStringAsFixed(3),
+        '-y',
+        '-nostdin',
+        '-ss', currentStart.toStringAsFixed(3),
+        '-t', duration.toStringAsFixed(3),
         '-i', inputPath,
         '-c', 'copy',
         chunkPath,
-        '-y',
       ];
 
       final session = await FFmpegKit.executeWithArguments(args);
@@ -157,11 +169,12 @@ class FfmpegKitMediaEngine implements MediaEngine {
       if (!ReturnCode.isSuccess(returnCode)) {
         final logs = await session.getAllLogsAsString();
         throw MediaEngineException(
-          'Splitting chunk $i failed ($start-$end) with FFmpegKit: $logs',
+          'Splitting chunk $i failed ($currentStart-$end) with FFmpegKit: $logs',
         );
       }
 
       chunkPaths.add(chunkPath);
+      currentStart = end;
     }
 
     return chunkPaths;
@@ -174,6 +187,7 @@ class FfmpegKitMediaEngine implements MediaEngine {
     double minDurationSeconds = 0.4,
   }) async {
     final List<String> args = [
+      '-nostdin',
       '-i', audioPath,
       '-af', 'silencedetect=noise=${noiseDb}dB:d=$minDurationSeconds',
       '-f', 'null',

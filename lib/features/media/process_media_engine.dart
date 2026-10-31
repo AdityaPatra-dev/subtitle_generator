@@ -82,6 +82,8 @@ class ProcessMediaEngine implements MediaEngine {
     await outFile.parent.create(recursive: true);
 
     final List<String> args = [
+      '-y',
+      '-nostdin',
       '-i', inputPath,
       '-vn',
       '-map', '0:$audioStreamIndex',
@@ -96,7 +98,6 @@ class ProcessMediaEngine implements MediaEngine {
       '-c:a', 'libmp3lame',
       '-b:a', '${config.bitrateKbps}k',
       outputPath,
-      '-y',
     ]);
 
     final result = await Process.run(ffmpegPath, args);
@@ -132,6 +133,7 @@ class ProcessMediaEngine implements MediaEngine {
     final result = await Process.run(
       ffmpegPath,
       [
+        '-nostdin',
         '-i', audioPath,
         '-af', 'silencedetect=noise=${noiseDb}dB:d=$minDurationSeconds',
         '-f', 'null',
@@ -176,12 +178,13 @@ class ProcessMediaEngine implements MediaEngine {
       final result = await Process.run(
         ffmpegPath,
         [
+          '-y',
+          '-nostdin',
           '-ss', currentStart.toStringAsFixed(3),
           '-t', duration.toStringAsFixed(3),
           '-i', inputPath,
           '-c', 'copy',
           chunkFile,
-          '-y',
         ],
       );
 

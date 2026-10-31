@@ -41,7 +41,7 @@ enum JobStatus {
 
 enum TranscriptionProviderType {
   groqWhisperLargeV3('Groq Whisper Large-v3', 'whisper-large-v3'),
-  gemini25Transcribe('Google Gemini 2.5 Flash', 'gemini-2.5-flash'),
+  gemini25Transcribe('Google Gemini Flash', 'gemini-3-flash-preview'),
   deepgramNova3('Deepgram Nova-3 Multilingual', 'nova-3');
 
   final String displayName;
@@ -50,7 +50,7 @@ enum TranscriptionProviderType {
 }
 
 enum TranslationModelType {
-  gemini25Flash('Google Gemini 2.5 Flash', 'gemini-2.5-flash'),
+  gemini25Flash('Google Gemini Flash', 'gemini-3-flash-preview'),
   groqLlama3370b('Groq Llama 3.3 70B Versatile', 'llama-3.3-70b-versatile'),
   none('Original Language (No Translation)', 'none');
 

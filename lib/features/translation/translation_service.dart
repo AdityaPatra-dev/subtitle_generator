@@ -196,11 +196,33 @@ RULES:
       }
     };
 
-    final response = await _dio.post(
-      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
-      queryParameters: {'key': apiKey.trim()},
-      data: payload,
-    );
+    final modelsToTry = [
+      'gemini-3-flash-preview',
+      'gemini-3.5-flash',
+      'gemini-flash-latest',
+      'gemini-2.5-flash',
+    ];
+
+    Response? response;
+    for (final model in modelsToTry) {
+      try {
+        response = await _dio.post(
+          'https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent',
+          queryParameters: {'key': apiKey.trim()},
+          data: payload,
+        );
+        if (response.statusCode == 200) break;
+      } on DioException catch (e) {
+        if (e.response?.statusCode == 404 || e.response?.statusCode == 503) {
+          continue;
+        }
+        rethrow;
+      }
+    }
+
+    if (response == null) {
+      throw Exception('All Gemini translation models failed or were unavailable');
+    }
 
     final data = response.data as Map<String, dynamic>;
     final candidates = (data['candidates'] as List<dynamic>?) ?? [];

@@ -63,7 +63,7 @@ class AudioExtractionConfig {
     this.mono = true,
     this.highPassHz = 80,
     this.lowPassHz = 8000,
-    this.loudnorm = true,
+    this.loudnorm = false,
     this.bitrateKbps = 48,
   });
 
