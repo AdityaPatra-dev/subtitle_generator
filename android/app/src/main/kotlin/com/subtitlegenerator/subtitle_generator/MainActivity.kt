@@ -1,5 +1,7 @@
 package com.subtitlegenerator.subtitle_generator
 
+import android.content.pm.PackageManager
+import android.os.Build
 import android.provider.MediaStore
 import android.util.Log
 import io.flutter.embedding.android.FlutterActivity
@@ -15,6 +17,21 @@ class MainActivity : FlutterActivity() {
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
+                "requestMediaPermission" -> {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        val granted = checkSelfPermission(android.Manifest.permission.READ_MEDIA_VIDEO) == PackageManager.PERMISSION_GRANTED
+                        if (!granted) {
+                            requestPermissions(arrayOf(android.Manifest.permission.READ_MEDIA_VIDEO), 101)
+                        }
+                        result.success(granted)
+                    } else {
+                        val granted = checkSelfPermission(android.Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+                        if (!granted) {
+                            requestPermissions(arrayOf(android.Manifest.permission.READ_EXTERNAL_STORAGE), 101)
+                        }
+                        result.success(granted)
+                    }
+                }
                 "getDisplayNameForMedia" -> {
                     val mediaId = call.argument<String>("mediaId")
                     val rawSize = call.argument<Number>("fileSizeBytes")

@@ -35,7 +35,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   bool _isProcessing = false;
   PipelineProgress? _currentProgress;
 
+  @override
+  void initState() {
+    super.initState();
+    if (Platform.isAndroid) {
+      _mediaChannel.invokeMethod('requestMediaPermission').catchError((_) => null);
+    }
+  }
+
   Future<void> _pickVideo() async {
+    if (Platform.isAndroid) {
+      await _mediaChannel.invokeMethod('requestMediaPermission').catchError((_) => null);
+    }
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['mp4', 'mkv', 'mov', 'webm', 'avi', 'flv', 'ts', 'm4v', '3gp', 'wmv'],
