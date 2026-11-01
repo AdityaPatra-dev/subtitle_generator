@@ -9,44 +9,54 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/AdityaPatra-dev/subtitle_generator/actions/workflows/release.yml"><img src="https://github.com/AdityaPatra-dev/subtitle_generator/actions/workflows/release.yml/badge.svg" alt="Build & Release" /></a>
+  <a href="https://github.com/adityapatra/subtitle_generator/releases"><img src="https://img.shields.io/badge/Release-v1.0.5-success?logo=github&style=flat-square" alt="Releases" /></a>
+  <a href="https://hub.docker.com/r/adityapatra/subtitle-generator"><img src="https://img.shields.io/badge/Docker-adityapatra%2Fsubtitle--generator-2496ED?logo=docker&logoColor=white&style=flat-square" alt="Docker Hub" /></a>
   <a href="https://flutter.dev"><img src="https://img.shields.io/badge/Flutter-3.44.8-02569B?logo=flutter&logoColor=white&style=flat-square" alt="Flutter" /></a>
-  <a href="https://github.com/AdityaPatra-dev/subtitle_generator/releases"><img src="https://img.shields.io/badge/Release-v1.0.4-success?logo=github&style=flat-square" alt="Releases" /></a>
-  <a href="https://github.com/AdityaPatra-dev/subtitle_generator/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue?style=flat-square" alt="License" /></a>
+  <a href="https://github.com/adityapatra/subtitle_generator/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue?style=flat-square" alt="License" /></a>
 </p>
 
 <p align="center">
-  <img src="https://readme-typing-svg.demolab.com?font=Fira+Code&weight=600&size=22&pause=1000&color=6366F1&center=true&vCenter=true&width=650&lines=Silence-Aware+VAD+Audio+Chunking+%E2%9A%A1;Multi-Provider+ASR%3A+Deepgram+%7C+Groq+%7C+Gemini;Contextual+LLM+Translation+to+English;Broadcast-Ready+Netflix+%26+BBC+Subtitles" alt="Typing SVG" />
+  <img src="https://readme-typing-svg.demolab.com?font=Fira+Code&weight=600&size=22&pause=1000&color=6366F1&center=true&vCenter=true&width=650&lines=Action+Mode+%26+Loud+Audio+Normalisation+%E2%9A%A1;Silence-Aware+VAD+Audio+Chunking+%E2%9A%A1;Multi-Provider+ASR%3A+Gemini+%7C+Groq+%7C+Deepgram;70%2B+Target+Subtitle+Languages+with+Search;Production+Docker+CLI+%26+Mobile+App" alt="Typing SVG" />
 </p>
 
 <p align="center">
   <a href="https://flutter.dev"><img src="https://img.shields.io/badge/Flutter-3.44.8-02569B?logo=flutter&logoColor=white&style=for-the-badge" alt="Flutter" /></a>
   <a href="https://dart.dev"><img src="https://img.shields.io/badge/Dart-3.12.2-0175C2?logo=dart&logoColor=white&style=for-the-badge" alt="Dart" /></a>
-  <a href="https://github.com/AdityaPatra-dev/subtitle_generator/releases"><img src="https://img.shields.io/badge/Android-APK_v1.0.0-3DDC84?logo=android&logoColor=white&style=for-the-badge" alt="Android" /></a>
+  <a href="https://github.com/adityapatra/subtitle_generator/releases"><img src="https://img.shields.io/badge/Android-APK_v1.0.5-3DDC84?logo=android&logoColor=white&style=for-the-badge" alt="Android" /></a>
+  <a href="https://hub.docker.com/r/adityapatra/subtitle-generator"><img src="https://img.shields.io/badge/Docker-CLI_Container-2496ED?logo=docker&logoColor=white&style=for-the-badge" alt="Docker" /></a>
   <a href="https://www.linux.org/"><img src="https://img.shields.io/badge/Linux-Desktop_Native-FCC624?logo=linux&logoColor=black&style=for-the-badge" alt="Linux" /></a>
-  <a href="https://groq.com"><img src="https://img.shields.io/badge/Groq-LPU_Inference-F05A28?logo=fastapi&logoColor=white&style=for-the-badge" alt="Groq" /></a>
-  <a href="https://deepgram.com"><img src="https://img.shields.io/badge/Deepgram-Nova--3-13EF93?logo=audiomack&logoColor=black&style=for-the-badge" alt="Deepgram" /></a>
   <a href="https://ai.google.dev"><img src="https://img.shields.io/badge/Google-Gemini_2.5_Flash-8E75C2?logo=google&logoColor=white&style=for-the-badge" alt="Gemini" /></a>
+  <a href="https://groq.com"><img src="https://img.shields.io/badge/Groq-Whisper_Large_v3-F05A28?logo=fastapi&logoColor=white&style=for-the-badge" alt="Groq" /></a>
 </p>
 
 ---
 
 ## 🌟 Overview
 
-**SubtitleGen AI** is a production-grade, privacy-first cross-platform application (Android, Linux, macOS, Windows) engineered to generate broadcast-quality subtitles (`.srt` / `.vtt`) from **long-form audio and video** (from 30-second clips up to 3+ hour films). 
+**SubtitleGen AI** is an autonomous, privacy-first cross-platform application (Android, Linux desktop, and Docker CLI) engineered to generate broadcast-quality subtitles (`.srt` / `.vtt`) from **long-form audio and video** (from short clips up to 3+ hour films). 
 
-Specializing in **Japanese (日本語)**, **Chinese (简体/繁體中文)**, **Korean (한국어)**, and **English**, SubtitleGen AI combines deterministic Edge audio DSP with cloud intelligence using your personal API keys (**BYOK**).
+Featuring **70+ output subtitle languages**, **smart speech and audio profiles**, and a resilient **chunk-level checkpoint/resume architecture**, SubtitleGen AI combines deterministic Edge audio DSP (FFmpeg, dynamic normalization, silence-based VAD) with cloud intelligence using your personal API keys (**BYOK**).
 
 ---
 
 ## 🚀 Key Features
 
-- 🎧 **Silence-Aware VAD Audio Slicing**: FFmpeg speech-silence detector splits long media around natural pauses (no cut-off sentences).
-- 🎙️ **Multi-Engine ASR**: Switch dynamically between **Deepgram Nova-3**, **Groq Whisper Large-v3**, and **Google Gemini 2.5 Flash**.
-- 🌐 **Context-Aware Translation**: Translates subtitle streams in sliding-window batches using **Groq (LLaMA 3.3 / Qwen)** or **Gemini 2.5 Flash** with 1:1 segment alignment.
+- 🎯 **Speech & Audio Profiles**:
+  - **Action & Loud Audio Mode**: Features dynamic audio normalization (`dynaudnorm`) and aggressive -20dB VAD threshold. Captures rapid dialogue, shouting, and altered/synthetic voices even through heavy combat sound effects, explosions, and loud background music.
+  - **Balanced Mode**: -28dB VAD threshold optimized for general movies, TV shows, and standard media.
+  - **Clear Dialogue Mode**: -35dB VAD threshold with vocal bandpass filter for interviews, courses, and podcasts.
+- 🌍 **70+ Output Subtitle Languages**:
+  - Searchable picker covering Spanish, Hindi, Japanese, Chinese (Simplified/Traditional), French, German, Arabic, Korean, and dozens more.
+  - Instant zero-token auto-bypass when source matches target language.
+- 🎧 **Silence-Aware VAD Audio Slicing**: FFmpeg speech-silence detector splits long media around natural pauses without cutting sentences midway.
+- 🔄 **Chunk-Level Checkpoint & Resume**:
+  - Extracted audio is cached persistently; chunk progress is stored in local SQLite. Interruptions or app restarts resume right where they left off with zero wasted API calls.
+- 📋 **Runs & Incomplete Tasks Management**: Dedicated tab to monitor active pipelines, inspect partial chunk status, retry failed runs, or resume interrupted tasks.
+- 🎙️ **Multi-Engine ASR**: Switch dynamically between **Google Gemini 2.5 Flash**, **Groq Whisper Large-v3**, and **Deepgram Nova-3**.
+- 🌐 **Context-Aware Translation**: Translates subtitle streams in sliding-window batches with 1:1 segment alignment.
 - 📐 **Broadcast Standard Formatting**: Adheres strictly to **BBC & Netflix Subtitle Guidelines** ($\le 42$ characters/line, natural breath breaks, millisecond timecodes).
+- 🐳 **Docker CLI & Multi-Platform**: Run headlessly anywhere via Docker or natively on Android and Linux desktop.
 - 🔒 **BYOK Privacy & Security**: Keys stored in hardware-backed secure storage (`Android Keystore` / `Linux Secret Service`). Your video never leaves your device.
-- 📱 **Cross-Platform Parity**: Available as a native Linux desktop application and standalone Android APK.
 
 ---
 
@@ -134,7 +144,32 @@ brew install ffmpeg
 
 ---
 
-### 📦 Quick Start
+## 🐳 Docker CLI Quick Start
+
+Run headless anywhere using the official Docker image:
+
+```bash
+# Pull the latest Docker image
+docker pull adityapatra/subtitle-generator:latest
+
+# Run subtitle generation on a video file
+docker run --rm \
+  -v $(pwd)/videos:/media/input \
+  -v $(pwd)/subtitles:/media/output \
+  -e GEMINI_API_KEY="your_api_key_here" \
+  adityapatra/subtitle-generator:latest \
+  -i /media/input/video.mp4 \
+  -o /media/output \
+  -s auto \
+  -t en \
+  -p action
+```
+
+See [DOCKERHUB.md](DOCKERHUB.md) for detailed CLI parameters and Docker Compose instructions.
+
+---
+
+### 📦 Development & Local Setup
 
 1. **Clone the Repository**:
    ```bash

@@ -2,7 +2,6 @@ import 'dart:ffi';
 import 'dart:io';
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqlite3/open.dart';
 
@@ -136,7 +135,7 @@ class SyncQueue extends Table {
 
 @DriftDatabase(tables: [Jobs, Chunks, TranscriptSegments, Subtitles, SyncQueue])
 class AppDatabase extends _$AppDatabase {
-  AppDatabase([QueryExecutor? e]) : super(e ?? _openConnection());
+  AppDatabase([QueryExecutor? e]) : super(e ?? openConnection());
 
   @override
   int get schemaVersion => 2;
@@ -155,10 +154,23 @@ class AppDatabase extends _$AppDatabase {
     },
   );
 
-  static LazyDatabase _openConnection() {
+  static LazyDatabase openConnection([Future<Directory> Function()? folderResolver]) {
     return LazyDatabase(() async {
       setupSqliteOnLinux();
-      final dbFolder = await getApplicationDocumentsDirectory();
+      Directory dbFolder;
+      if (folderResolver != null) {
+        dbFolder = await folderResolver();
+      } else {
+        final home = Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'];
+        if (home != null && home.isNotEmpty) {
+          dbFolder = Directory(p.join(home, '.subtitle_generator'));
+        } else {
+          dbFolder = Directory(p.join(Directory.systemTemp.path, 'subtitle_generator'));
+        }
+      }
+      if (!await dbFolder.exists()) {
+        await dbFolder.create(recursive: true);
+      }
       final file = File(p.join(dbFolder.path, 'subtitle_generator.sqlite'));
       return NativeDatabase.createInBackground(file);
     });

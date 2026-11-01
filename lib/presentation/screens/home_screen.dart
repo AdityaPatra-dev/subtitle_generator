@@ -436,10 +436,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           color: textPrimary,
                         ),
                       ),
-                      Text(
-                        'Edge-Cloud Hybrid Video Transcription',
-                        style: TextStyle(fontSize: 12, color: textSecondary, fontWeight: FontWeight.w400),
-                      ),
                     ],
                   ),
                 ),
@@ -663,8 +659,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ),
             const SizedBox(height: 22),
 
-            // --- Speech & VAD Engine Profile (Donghua Battle Mode) ---
-            _buildSectionTitle('Speech & VAD Engine Profile', Icons.graphic_eq_rounded, textPrimary),
+            // --- Speech & Audio Profile ---
+            _buildSectionTitle('Speech & Audio Profile', Icons.graphic_eq_rounded, textPrimary),
             const SizedBox(height: 8),
             _buildSpeechProfileSelector(cardBg, borderCol, textPrimary, textSecondary, isDark),
             const SizedBox(height: 22),

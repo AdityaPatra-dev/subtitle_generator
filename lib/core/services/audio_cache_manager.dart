@@ -1,13 +1,20 @@
 import 'dart:io';
 import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 
 class AudioCacheManager {
   static const String _folderName = 'audio_cache';
+  final Future<Directory> Function()? _dirResolver;
+
+  AudioCacheManager([this._dirResolver]);
 
   /// Returns the persistent directory where extracted audio files are cached
   Future<Directory> getAudioCacheDir() async {
-    final baseDir = await getApplicationSupportDirectory();
+    Directory baseDir;
+    if (_dirResolver != null) {
+      baseDir = await _dirResolver();
+    } else {
+      baseDir = Directory(p.join(Directory.systemTemp.path, 'subtitle_generator'));
+    }
     final cacheDir = Directory(p.join(baseDir.path, _folderName));
     if (!await cacheDir.exists()) {
       await cacheDir.create(recursive: true);

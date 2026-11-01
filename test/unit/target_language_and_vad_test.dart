@@ -65,8 +65,8 @@ void main() {
       expect(profile.highPassHz, 40);
       expect(profile.lowPassHz, 12000);
       expect(profile.enableDynaudnorm, true);
-      expect(profile.promptHint.contains('battle shouts'), true);
-      expect(profile.promptHint.contains('demonic'), true);
+      expect(profile.promptHint.contains('shouting'), true);
+      expect(profile.promptHint.contains('altered'), true);
     });
 
     test('Standard and Clear profiles have conservative parameters', () {
@@ -118,3 +118,4 @@ void main() {
     });
   });
 }
+

@@ -1,6 +1,8 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path_provider/path_provider.dart';
+import 'security/flutter_secure_storage_service.dart';
 import 'security/secure_storage_service.dart';
 import 'services/audio_cache_manager.dart';
 import 'storage/database.dart';
@@ -15,14 +17,14 @@ final themeModeProvider = StateProvider<ThemeMode>((ref) => ThemeMode.dark);
 
 // Database Provider
 final databaseProvider = Provider<AppDatabase>((ref) {
-  final db = AppDatabase();
+  final db = AppDatabase(AppDatabase.openConnection(getApplicationDocumentsDirectory));
   ref.onDispose(() => db.close());
   return db;
 });
 
 // Secure Storage Provider
 final secureStorageProvider = Provider<SecureStorageService>((ref) {
-  return SecureStorageService();
+  return FlutterSecureStorageService();
 });
 
 // Media Engine Provider
@@ -35,7 +37,7 @@ final mediaEngineProvider = Provider<MediaEngine>((ref) {
 
 // Audio Cache Manager Provider
 final audioCacheManagerProvider = Provider<AudioCacheManager>((ref) {
-  return AudioCacheManager();
+  return AudioCacheManager(getApplicationSupportDirectory);
 });
 
 // Translation Service Provider

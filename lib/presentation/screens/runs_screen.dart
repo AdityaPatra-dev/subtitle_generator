@@ -37,18 +37,9 @@ class _RunsScreenState extends ConsumerState<RunsScreen> {
     return Scaffold(
       backgroundColor: bg,
       appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Runs & Incomplete Tasks',
-              style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18),
-            ),
-            Text(
-              'Inspect partial assets, export partial subtitles, or resume compute',
-              style: TextStyle(fontSize: 11, color: textSecondary, fontWeight: FontWeight.w400),
-            ),
-          ],
+        title: const Text(
+          'Runs & Incomplete Tasks',
+          style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18),
         ),
         backgroundColor: Colors.transparent,
         elevation: 0,

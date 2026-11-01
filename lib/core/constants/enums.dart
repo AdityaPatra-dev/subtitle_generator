@@ -248,10 +248,10 @@ enum TargetLanguage {
 
 enum SpeechProfile {
   actionDonghua(
-    displayName: 'Action / Donghua (Battle Mode)',
-    shortLabel: 'Battle Mode',
-    description: 'High sensitivity for loud combat BGM, sword fights, explosions & modulated/demonic enemy voices',
-    badge: 'RECOMMENDED FOR DONGHUA',
+    displayName: 'Action & Loud Audio (High Sensitivity)',
+    shortLabel: 'Action Mode',
+    description: 'Optimized for loud background music, sound effects, explosions & altered or synthetic voices',
+    badge: 'HIGH SENSITIVITY',
     noiseDb: -20.0,
     minSilenceDurationSeconds: 0.20,
     bitrateKbps: 128,
@@ -259,12 +259,12 @@ enum SpeechProfile {
     lowPassHz: 12000,
     enableDynaudnorm: true,
     promptHint:
-        'Transcribe all dialogue, battle shouts, martial arts techniques, demonic and distorted villain voices, and spiritual beings accurately over loud background music.',
+        'Transcribe all dialogue, shouting, action phrases, modulated, robotic, and altered character voices accurately over loud background music and sound effects.',
   ),
   standardBalanced(
     displayName: 'Standard (Balanced)',
     shortLabel: 'Standard',
-    description: 'Balanced profile for general movies, TV shows, anime, and YouTube videos',
+    description: 'Balanced profile for movies, TV series, shows, and online videos',
     badge: 'DEFAULT',
     noiseDb: -30.0,
     minSilenceDurationSeconds: 0.35,
@@ -275,9 +275,9 @@ enum SpeechProfile {
     promptHint: 'Transcribe all spoken dialogue clearly and accurately.',
   ),
   clearDialogue(
-    displayName: 'Clear Speech / Podcast',
-    shortLabel: 'Podcast Mode',
-    description: 'Strict noise floor isolation for podcasts, interviews, audiobooks, and conferences',
+    displayName: 'Clear Speech / Dialogue',
+    shortLabel: 'Dialogue Mode',
+    description: 'Strict voice isolation for podcasts, interviews, audiobooks, and conversations',
     badge: 'CONSERVATIVE',
     noiseDb: -38.0,
     minSilenceDurationSeconds: 0.50,
