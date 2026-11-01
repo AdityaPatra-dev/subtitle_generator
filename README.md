@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/adityapatra/subtitle_generator/releases"><img src="https://img.shields.io/badge/Release-v1.0.5-success?logo=github&style=flat-square" alt="Releases" /></a>
+  <a href="https://github.com/adityapatra/subtitle_generator/releases"><img src="https://img.shields.io/badge/Release-v1.0.6-success?logo=github&style=flat-square" alt="Releases" /></a>
   <a href="https://hub.docker.com/r/adityapatra/subtitle-generator"><img src="https://img.shields.io/badge/Docker-adityapatra%2Fsubtitle--generator-2496ED?logo=docker&logoColor=white&style=flat-square" alt="Docker Hub" /></a>
   <a href="https://flutter.dev"><img src="https://img.shields.io/badge/Flutter-3.44.8-02569B?logo=flutter&logoColor=white&style=flat-square" alt="Flutter" /></a>
   <a href="https://github.com/adityapatra/subtitle_generator/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue?style=flat-square" alt="License" /></a>
@@ -22,7 +22,7 @@
 <p align="center">
   <a href="https://flutter.dev"><img src="https://img.shields.io/badge/Flutter-3.44.8-02569B?logo=flutter&logoColor=white&style=for-the-badge" alt="Flutter" /></a>
   <a href="https://dart.dev"><img src="https://img.shields.io/badge/Dart-3.12.2-0175C2?logo=dart&logoColor=white&style=for-the-badge" alt="Dart" /></a>
-  <a href="https://github.com/adityapatra/subtitle_generator/releases"><img src="https://img.shields.io/badge/Android-APK_v1.0.5-3DDC84?logo=android&logoColor=white&style=for-the-badge" alt="Android" /></a>
+  <a href="https://github.com/adityapatra/subtitle_generator/releases"><img src="https://img.shields.io/badge/Android-APK_v1.0.6-3DDC84?logo=android&logoColor=white&style=for-the-badge" alt="Android" /></a>
   <a href="https://hub.docker.com/r/adityapatra/subtitle-generator"><img src="https://img.shields.io/badge/Docker-CLI_Container-2496ED?logo=docker&logoColor=white&style=for-the-badge" alt="Docker" /></a>
   <a href="https://www.linux.org/"><img src="https://img.shields.io/badge/Linux-Desktop_Native-FCC624?logo=linux&logoColor=black&style=for-the-badge" alt="Linux" /></a>
   <a href="https://ai.google.dev"><img src="https://img.shields.io/badge/Google-Gemini_2.5_Flash-8E75C2?logo=google&logoColor=white&style=for-the-badge" alt="Gemini" /></a>

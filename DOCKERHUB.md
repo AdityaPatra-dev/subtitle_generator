@@ -1,7 +1,7 @@
 # AI Subtitle Generator 🎬
 
 [![Docker Image Version](https://img.shields.io/badge/docker-adityapatra%2Fsubtitle--generator-blue.svg?logo=docker)](https://hub.docker.com/r/adityapatra/subtitle-generator)
-[![Version](https://img.shields.io/badge/version-1.0.5-emerald.svg)](https://github.com/adityapatra/subtitle_generator)
+[![Version](https://img.shields.io/badge/version-1.0.6-emerald.svg)](https://github.com/adityapatra/subtitle_generator)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 Autonomous, multi-engine AI Subtitle Generator CLI container powered by **Google Gemini 2.5 Flash**, **Groq Whisper Large v3 Turbo**, and **Deepgram Nova-3**. Automatically extracts audio, detects speech boundaries with silence-based VAD, transcribes dialogue, translates into 70+ target languages, and generates production-ready `.srt` and `.vtt` subtitle files.

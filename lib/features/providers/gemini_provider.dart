@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:isolate';
 import 'package:dio/dio.dart';
 import 'transcription_provider.dart';
 
@@ -63,7 +62,7 @@ class GeminiProvider implements BaseTranscriptionProvider {
     }
 
     final bytes = await file.readAsBytes();
-    final base64Audio = await Isolate.run(() => base64Encode(bytes));
+    final base64Audio = base64Encode(bytes);
 
     final langPrompt = (sourceLanguage != null && sourceLanguage.isNotEmpty)
         ? 'The audio spoken language is $sourceLanguage.'
