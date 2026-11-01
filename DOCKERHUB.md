@@ -122,3 +122,4 @@ Looking for the native Android App with rich UI, background audio processing, pr
 ## 📄 License
 
 Distributed under the MIT License. See [LICENSE](https://github.com/adityapatra/subtitle_generator/blob/main/LICENSE) for more details.
+

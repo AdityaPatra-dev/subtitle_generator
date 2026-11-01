@@ -89,3 +89,4 @@ class FlutterSecureStorageService implements SecureStorageService {
     await _storage.deleteAll();
   }
 }
+
