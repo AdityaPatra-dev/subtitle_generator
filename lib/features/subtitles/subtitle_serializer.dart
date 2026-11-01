@@ -1,4 +1,6 @@
+import '../../core/storage/database.dart';
 import 'subtitle_cue.dart';
+import 'subtitle_line_breaker.dart';
 
 class SubtitleSerializer {
   /// Serializes cues to standard SubRip (.srt) UTF-8 format
@@ -73,5 +75,45 @@ class SubtitleSerializer {
     final mins = double.tryParse(parts[1]) ?? 0.0;
     final secs = double.tryParse(parts[2]) ?? 0.0;
     return (hrs * 3600) + (mins * 60) + secs;
+  }
+
+  /// Formats raw database TranscriptSegmentEntry rows into a standard SubRip (.srt) string
+  static String segmentsToSrt(
+    List<TranscriptSegmentEntry> segments, {
+    String? finalNotice,
+  }) {
+    if (segments.isEmpty) {
+      if (finalNotice != null) {
+        return '1\n00:00:00,000 --> 00:00:05,000\n$finalNotice\n';
+      }
+      return '';
+    }
+
+    final List<SubtitleCue> cues = [];
+    int cueIndex = 1;
+
+    for (final seg in segments) {
+      final rawText = seg.translatedText?.isNotEmpty == true ? seg.translatedText! : seg.sourceText;
+      final subCues = SubtitleLineBreaker.breakLongSegment(
+        startSeconds: seg.startSeconds,
+        endSeconds: seg.endSeconds,
+        text: rawText,
+        startingIndex: cueIndex,
+      );
+      cues.addAll(subCues);
+      cueIndex += subCues.length;
+    }
+
+    if (finalNotice != null && cues.isNotEmpty) {
+      final lastEnd = cues.last.endSeconds;
+      cues.add(SubtitleCue(
+        index: cueIndex,
+        startSeconds: lastEnd + 0.5,
+        endSeconds: lastEnd + 4.5,
+        text: finalNotice,
+      ));
+    }
+
+    return toSrt(cues);
   }
 }

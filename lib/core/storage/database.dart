@@ -40,6 +40,9 @@ class Jobs extends Table {
   IntColumn get totalChunks => integer().withDefault(const Constant(0))();
 
   TextColumn get errorMessage => text().nullable()();
+  TextColumn get cachedAudioPath => text().nullable()();
+  TextColumn get failedStage => text().nullable()();
+  Int64Column get interruptedAt => int64().nullable()();
   Int64Column get createdAt => int64()();
   Int64Column get updatedAt => int64()();
 
@@ -136,7 +139,21 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase([QueryExecutor? e]) : super(e ?? _openConnection());
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
+
+  @override
+  MigrationStrategy get migration => MigrationStrategy(
+    onCreate: (m) async {
+      await m.createAll();
+    },
+    onUpgrade: (m, from, to) async {
+      if (from < 2) {
+        await m.addColumn(jobs, jobs.cachedAudioPath);
+        await m.addColumn(jobs, jobs.failedStage);
+        await m.addColumn(jobs, jobs.interruptedAt);
+      }
+    },
+  );
 
   static LazyDatabase _openConnection() {
     return LazyDatabase(() async {
@@ -154,6 +171,34 @@ class AppDatabase extends _$AppDatabase {
   Future<List<JobEntry>> getAllJobs() => select(jobs).get();
   Stream<List<JobEntry>> watchAllJobs() => (select(jobs)..orderBy([(t) => OrderingTerm.desc(t.createdAt)])).watch();
   Future<List<JobEntry>> getActiveJobs() => (select(jobs)..where((t) => t.status.isNotIn(['completed', 'failed', 'cancelled']))).get();
+  Stream<List<JobEntry>> watchIncompleteJobs() => (select(jobs)
+    ..where((t) => t.status.isNotIn(['completed', 'cancelled']))
+    ..orderBy([(t) => OrderingTerm.desc(t.updatedAt)]))
+    .watch();
+  Future<List<JobEntry>> getIncompleteJobs() => (select(jobs)
+    ..where((t) => t.status.isNotIn(['completed', 'cancelled']))
+    ..orderBy([(t) => OrderingTerm.desc(t.updatedAt)]))
+    .get();
+  Future<JobEntry?> findIncompleteJobForFile(String filename, int fileSizeBytes) async {
+    final query = select(jobs)
+      ..where((t) => t.status.isNotIn(['completed', 'cancelled']))
+      ..where((t) => t.fileSizeBytes.equals(BigInt.from(fileSizeBytes)))
+      ..orderBy([(t) => OrderingTerm.desc(t.updatedAt)])
+      ..limit(1);
+    final results = await query.get();
+    if (results.isNotEmpty) return results.first;
+    final fallbackQuery = select(jobs)
+      ..where((t) => t.status.isNotIn(['completed', 'cancelled']))
+      ..where((t) => t.originalFilename.equals(filename))
+      ..orderBy([(t) => OrderingTerm.desc(t.updatedAt)])
+      ..limit(1);
+    return fallbackQuery.getSingleOrNull();
+  }
+  Future<void> deleteJobAndData(String jobId) async {
+    await (delete(transcriptSegments)..where((t) => t.jobId.equals(jobId))).go();
+    await (delete(chunks)..where((t) => t.jobId.equals(jobId))).go();
+    await (delete(jobs)..where((t) => t.id.equals(jobId))).go();
+  }
 
   // --- Chunk Operations ---
   Future<void> insertChunk(ChunksCompanion chunk) => into(chunks).insert(chunk);

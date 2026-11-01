@@ -85,4 +85,58 @@ void main() {
     final deletedSub = await db.getSubtitle(subId);
     expect(deletedSub!.isDeleted, true);
   });
+
+  test('Incomplete jobs tracking and clean deletion', () async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    const jobId = 'job-failed-001';
+
+    // Insert a failed job
+    await db.insertJob(JobsCompanion.insert(
+      id: jobId,
+      videoFilePath: '/videos/movie.mp4',
+      originalFilename: 'movie.mp4',
+      fileSizeBytes: BigInt.from(100 * 1024 * 1024),
+      durationSeconds: const Value(3600.0),
+      sourceLanguage: 'en',
+      provider: TranscriptionProviderType.deepgramNova3.name,
+      translationModel: TranslationModelType.gemini25Flash.name,
+      status: JobStatus.failed.name,
+      failedStage: const Value('transcription'),
+      cachedAudioPath: const Value('/cache/movie.mp3'),
+      createdAt: BigInt.from(now),
+      updatedAt: BigInt.from(now),
+    ));
+
+    // Also insert a segment for this job
+    await db.insertSegments([
+      TranscriptSegmentsCompanion.insert(
+        jobId: jobId,
+        chunkId: 'chunk-0',
+        segmentIndex: 0,
+        startSeconds: 0.0,
+        endSeconds: 5.0,
+        sourceText: 'Hello world',
+      ),
+    ]);
+
+    // Check incomplete jobs query
+    final incomplete = await db.getIncompleteJobs();
+    expect(incomplete.length, 1);
+    expect(incomplete.first.id, jobId);
+    expect(incomplete.first.failedStage, 'transcription');
+
+    // Find by file path
+    final match = await db.findIncompleteJobForFile('/videos/movie.mp4', 100 * 1024 * 1024);
+    expect(match, isNotNull);
+    expect(match!.id, jobId);
+
+    // Delete job and all associated data
+    await db.deleteJobAndData(jobId);
+
+    final afterDelete = await db.getIncompleteJobs();
+    expect(afterDelete.isEmpty, true);
+
+    final segsAfter = await db.getSegmentsForJob(jobId);
+    expect(segsAfter.isEmpty, true);
+  });
 }

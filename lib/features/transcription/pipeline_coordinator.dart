@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 
 import '../../core/constants/enums.dart';
 import '../../core/security/secure_storage_service.dart';
+import '../../core/services/audio_cache_manager.dart';
 import '../../core/storage/database.dart';
 import '../audio_processing/vad_chunk_calculator.dart';
 import '../media/media_engine.dart';
@@ -70,6 +71,7 @@ class PipelineCoordinator {
   final MediaEngine mediaEngine;
   final SecureStorageService secureStorage;
   final TranslationService translationService;
+  final AudioCacheManager audioCacheManager;
 
   final GroqWhisperProvider groqProvider = GroqWhisperProvider();
   final GeminiProvider geminiProvider = GeminiProvider();
@@ -80,9 +82,10 @@ class PipelineCoordinator {
     required this.mediaEngine,
     required this.secureStorage,
     required this.translationService,
-  });
+    AudioCacheManager? audioCacheManager,
+  }) : audioCacheManager = audioCacheManager ?? AudioCacheManager();
 
-  /// Starts processing a video file through the full Edge-Cloud hybrid pipeline
+  /// Starts processing a video file with resilient checkpointing & audio caching
   Stream<PipelineProgress> processVideo({
     required String videoPath,
     String? originalFilename,
@@ -93,9 +96,9 @@ class PipelineCoordinator {
     required String tempWorkDir,
     required String outputDir,
     bool exportVtt = true,
+    String? resumeJobId,
   }) async* {
     final stopwatch = Stopwatch()..start();
-    final jobId = const Uuid().v4();
     final videoFile = File(videoPath);
     final filename = (originalFilename != null && originalFilename.trim().isNotEmpty)
         ? originalFilename.trim()
@@ -138,22 +141,46 @@ class PipelineCoordinator {
       translationApiKey = await secureStorage.getGroqKey();
     }
 
-    // 1. Initial State: PENDING
-    await db.insertJob(JobsCompanion.insert(
-      id: jobId,
-      videoFilePath: videoPath,
-      originalFilename: filename,
-      fileSizeBytes: BigInt.from(fileSizeBytes),
-      durationSeconds: const Value(0.0),
-      audioStreamIndex: Value(audioStreamIndex),
-      sourceLanguage: sourceLang.bcp47,
-      targetLanguage: const Value('en'),
-      provider: providerType.name,
-      translationModel: translationModel.name,
-      status: JobStatus.pending.name,
-      createdAt: BigInt.from(now),
-      updatedAt: BigInt.from(now),
-    ));
+    // 1. Initial State: Determine or Resume Job
+    String jobId = resumeJobId ?? '';
+    JobEntry? existingJob;
+
+    if (jobId.isNotEmpty) {
+      existingJob = await db.getJob(jobId);
+    } else {
+      existingJob = await db.findIncompleteJobForFile(filename, fileSizeBytes);
+      if (existingJob != null) {
+        jobId = existingJob.id;
+      }
+    }
+
+    if (jobId.isEmpty) {
+      jobId = const Uuid().v4();
+      await db.insertJob(JobsCompanion.insert(
+        id: jobId,
+        videoFilePath: videoPath,
+        originalFilename: filename,
+        fileSizeBytes: BigInt.from(fileSizeBytes),
+        durationSeconds: const Value(0.0),
+        audioStreamIndex: Value(audioStreamIndex),
+        sourceLanguage: sourceLang.bcp47,
+        targetLanguage: const Value('en'),
+        provider: providerType.name,
+        translationModel: translationModel.name,
+        status: JobStatus.pending.name,
+        createdAt: BigInt.from(now),
+        updatedAt: BigInt.from(now),
+      ));
+    } else {
+      await db.updateJob(JobsCompanion(
+        id: Value(jobId),
+        status: Value(JobStatus.pending.name),
+        provider: Value(providerType.name),
+        translationModel: Value(translationModel.name),
+        sourceLanguage: Value(sourceLang.bcp47),
+        updatedAt: Value(BigInt.from(now)),
+      ));
+    }
 
     yield PipelineProgress(
       jobId: jobId,
@@ -161,129 +188,217 @@ class PipelineCoordinator {
       currentChunk: 0,
       totalChunks: 0,
       progressPercent: 0.05,
-      statusMessage: 'Probing media streams & tracks...',
+      statusMessage: 'Probing media tracks & audio cache...',
       elapsedTime: stopwatch.elapsed,
       estimatedRemainingTime: null,
     );
 
-    // 2. EXTRACTING AUDIO
+    // 2. EXTRACTING AUDIO OR REUSING CACHED AUDIO
     await _updateJobStatus(jobId, JobStatus.extractingAudio);
-    yield PipelineProgress(
-      jobId: jobId,
-      status: JobStatus.extractingAudio,
-      currentChunk: 0,
-      totalChunks: 0,
-      progressPercent: 0.12,
-      statusMessage: 'Extracting clean audio track (16kHz mono, MP3)...',
-      elapsedTime: stopwatch.elapsed,
-      estimatedRemainingTime: computeEta(0.12),
-    );
 
-    final jobTempDir = Directory(p.join(tempWorkDir, jobId));
-    await jobTempDir.create(recursive: true);
-    final fullAudioPath = p.join(jobTempDir.path, '${jobId}_full.mp3');
-
-    final extractionResult = await mediaEngine.extractAudio(
-      inputPath: videoPath,
-      outputPath: fullAudioPath,
+    final cacheKey = audioCacheManager.generateCacheKey(
+      filename: filename,
+      fileSizeBytes: fileSizeBytes,
       audioStreamIndex: audioStreamIndex,
-      config: const AudioExtractionConfig(),
     );
+    final targetCachedAudioPath = await audioCacheManager.getTargetFilePath(cacheKey);
+    final validCachedAudio = await audioCacheManager.getValidCachedAudio(cacheKey);
 
-    final extractedAudioBytes = extractionResult.fileSizeBytes;
+    String fullAudioPath;
+    int extractedAudioBytes;
+    double videoDurationSeconds = existingJob?.durationSeconds ?? 0.0;
 
-    await db.updateJob(JobsCompanion(
-      id: Value(jobId),
-      durationSeconds: Value(extractionResult.durationSeconds),
-      updatedAt: Value(BigInt.from(DateTime.now().millisecondsSinceEpoch)),
-    ));
+    if (validCachedAudio != null) {
+      fullAudioPath = validCachedAudio.path;
+      extractedAudioBytes = await validCachedAudio.length();
 
-    yield PipelineProgress(
-      jobId: jobId,
-      status: JobStatus.extractingAudio,
-      currentChunk: 0,
-      totalChunks: 0,
-      progressPercent: 0.18,
-      statusMessage: 'Audio extracted (${(extractedAudioBytes / (1024 * 1024)).toStringAsFixed(1)} MB). Analyzing speech...',
-      elapsedTime: stopwatch.elapsed,
-      estimatedRemainingTime: computeEta(0.18),
-      extractedAudioSizeBytes: extractedAudioBytes,
-    );
-
-    // 3. CHUNKING with Silence-Aware VAD
-    await _updateJobStatus(jobId, JobStatus.chunking);
-    yield PipelineProgress(
-      jobId: jobId,
-      status: JobStatus.chunking,
-      currentChunk: 0,
-      totalChunks: 0,
-      progressPercent: 0.22,
-      statusMessage: 'Detecting speech silence intervals...',
-      elapsedTime: stopwatch.elapsed,
-      estimatedRemainingTime: computeEta(0.22),
-      extractedAudioSizeBytes: extractedAudioBytes,
-    );
-
-    final silenceStderr = await mediaEngine.detectSilence(audioPath: fullAudioPath);
-    final silenceIntervals = VadChunkCalculator.parseSilenceOutput(silenceStderr);
-    final splitPoints = VadChunkCalculator.calculateSplitPoints(
-      totalDurationSeconds: extractionResult.durationSeconds,
-      silenceIntervals: silenceIntervals,
-    );
-
-    final chunkPaths = await mediaEngine.splitAudioAtTimestamps(
-      inputPath: fullAudioPath,
-      splitPointsSeconds: splitPoints,
-      outputDir: jobTempDir.path,
-      prefix: jobId,
-    );
-
-    final totalChunks = chunkPaths.length;
-    await db.updateJob(JobsCompanion(
-      id: Value(jobId),
-      totalChunks: Value(totalChunks),
-      updatedAt: Value(BigInt.from(DateTime.now().millisecondsSinceEpoch)),
-    ));
-
-    // Insert Chunks into DB
-    double currentOffset = 0.0;
-    for (int i = 0; i < totalChunks; i++) {
-      final chunkFile = File(chunkPaths[i]);
-      final size = await chunkFile.length();
-      final endOffset = (i < splitPoints.length) ? splitPoints[i] : extractionResult.durationSeconds;
-      final chunkDur = endOffset - currentOffset;
-
-      await db.insertChunk(ChunksCompanion.insert(
-        id: '${jobId}_chunk_$i',
-        jobId: jobId,
-        chunkIndex: i,
-        startSeconds: currentOffset,
-        endSeconds: endOffset,
-        durationSeconds: chunkDur,
-        audioFilePath: chunkPaths[i],
-        fileSizeBytes: BigInt.from(size),
-        status: 'PENDING',
-        createdAt: BigInt.from(DateTime.now().millisecondsSinceEpoch),
+      await db.updateJob(JobsCompanion(
+        id: Value(jobId),
+        cachedAudioPath: Value(fullAudioPath),
+        updatedAt: Value(BigInt.from(DateTime.now().millisecondsSinceEpoch)),
       ));
 
-      currentOffset = endOffset;
+      yield PipelineProgress(
+        jobId: jobId,
+        status: JobStatus.extractingAudio,
+        currentChunk: 0,
+        totalChunks: 0,
+        progressPercent: 0.18,
+        statusMessage: 'Reusing cached audio (${(extractedAudioBytes / (1024 * 1024)).toStringAsFixed(1)} MB) — 0s extraction!',
+        elapsedTime: stopwatch.elapsed,
+        estimatedRemainingTime: computeEta(0.18),
+        extractedAudioSizeBytes: extractedAudioBytes,
+      );
+    } else {
+      yield PipelineProgress(
+        jobId: jobId,
+        status: JobStatus.extractingAudio,
+        currentChunk: 0,
+        totalChunks: 0,
+        progressPercent: 0.12,
+        statusMessage: 'Extracting clean audio track (16kHz mono, MP3)...',
+        elapsedTime: stopwatch.elapsed,
+        estimatedRemainingTime: computeEta(0.12),
+      );
+
+      final extractionResult = await mediaEngine.extractAudio(
+        inputPath: videoPath,
+        outputPath: targetCachedAudioPath,
+        audioStreamIndex: audioStreamIndex,
+        config: const AudioExtractionConfig(),
+      );
+
+      fullAudioPath = targetCachedAudioPath;
+      extractedAudioBytes = extractionResult.fileSizeBytes;
+      videoDurationSeconds = extractionResult.durationSeconds;
+
+      await db.updateJob(JobsCompanion(
+        id: Value(jobId),
+        cachedAudioPath: Value(targetCachedAudioPath),
+        durationSeconds: Value(videoDurationSeconds),
+        updatedAt: Value(BigInt.from(DateTime.now().millisecondsSinceEpoch)),
+      ));
+
+      yield PipelineProgress(
+        jobId: jobId,
+        status: JobStatus.extractingAudio,
+        currentChunk: 0,
+        totalChunks: 0,
+        progressPercent: 0.18,
+        statusMessage: 'Audio extracted (${(extractedAudioBytes / (1024 * 1024)).toStringAsFixed(1)} MB). Analyzing speech...',
+        elapsedTime: stopwatch.elapsed,
+        estimatedRemainingTime: computeEta(0.18),
+        extractedAudioSizeBytes: extractedAudioBytes,
+      );
     }
 
-    // 4. TRANSCRIBING Chunks Sequentially
-    await _updateJobStatus(jobId, JobStatus.transcribing);
+    // 3. CHUNKING with Silence-Aware VAD (or reuse existing chunks)
+    final jobTempDir = Directory(p.join(tempWorkDir, jobId));
+    await jobTempDir.create(recursive: true);
 
-    final List<TranscriptSegmentsCompanion> allSegmentsToInsert = [];
-    int globalSegmentIndex = 0;
+    await _updateJobStatus(jobId, JobStatus.chunking);
+
+    final existingChunkRecords = await db.getChunksForJob(jobId);
+    List<String> chunkPaths = [];
+    int totalChunks = 0;
+
+    if (existingChunkRecords.isNotEmpty) {
+      bool allFilesPresent = true;
+      for (final c in existingChunkRecords) {
+        if (c.status != 'COMPLETED' && !await File(c.audioFilePath).exists()) {
+          allFilesPresent = false;
+          break;
+        }
+      }
+
+      if (allFilesPresent) {
+        chunkPaths = existingChunkRecords.map((c) => c.audioFilePath).toList();
+        totalChunks = existingChunkRecords.length;
+        yield PipelineProgress(
+          jobId: jobId,
+          status: JobStatus.chunking,
+          currentChunk: 0,
+          totalChunks: totalChunks,
+          progressPercent: 0.25,
+          statusMessage: 'Reusing $totalChunks existing chunks — VAD chunking skipped!',
+          elapsedTime: stopwatch.elapsed,
+          estimatedRemainingTime: computeEta(0.25),
+          extractedAudioSizeBytes: extractedAudioBytes,
+        );
+      }
+    }
+
+    if (chunkPaths.isEmpty) {
+      yield PipelineProgress(
+        jobId: jobId,
+        status: JobStatus.chunking,
+        currentChunk: 0,
+        totalChunks: 0,
+        progressPercent: 0.22,
+        statusMessage: 'Detecting speech silence intervals...',
+        elapsedTime: stopwatch.elapsed,
+        estimatedRemainingTime: computeEta(0.22),
+        extractedAudioSizeBytes: extractedAudioBytes,
+      );
+
+      final silenceStderr = await mediaEngine.detectSilence(audioPath: fullAudioPath);
+      final silenceIntervals = VadChunkCalculator.parseSilenceOutput(silenceStderr);
+      final splitPoints = VadChunkCalculator.calculateSplitPoints(
+        totalDurationSeconds: videoDurationSeconds > 0 ? videoDurationSeconds : 120.0,
+        silenceIntervals: silenceIntervals,
+      );
+
+      chunkPaths = await mediaEngine.splitAudioAtTimestamps(
+        inputPath: fullAudioPath,
+        splitPointsSeconds: splitPoints,
+        outputDir: jobTempDir.path,
+        prefix: jobId,
+      );
+
+      totalChunks = chunkPaths.length;
+      await db.updateJob(JobsCompanion(
+        id: Value(jobId),
+        totalChunks: Value(totalChunks),
+        updatedAt: Value(BigInt.from(DateTime.now().millisecondsSinceEpoch)),
+      ));
+
+      double currentOffset = 0.0;
+      for (int i = 0; i < totalChunks; i++) {
+        final chunkFile = File(chunkPaths[i]);
+        final size = await chunkFile.length();
+        final endOffset = (i < splitPoints.length) ? splitPoints[i] : (videoDurationSeconds > 0 ? videoDurationSeconds : (currentOffset + 120.0));
+        final chunkDur = endOffset - currentOffset;
+
+        await db.insertChunk(ChunksCompanion.insert(
+          id: '${jobId}_chunk_$i',
+          jobId: jobId,
+          chunkIndex: i,
+          startSeconds: currentOffset,
+          endSeconds: endOffset,
+          durationSeconds: chunkDur,
+          audioFilePath: chunkPaths[i],
+          fileSizeBytes: BigInt.from(size),
+          status: 'PENDING',
+          createdAt: BigInt.from(DateTime.now().millisecondsSinceEpoch),
+        ));
+
+        currentOffset = endOffset;
+      }
+    }
+
+    // 4. TRANSCRIBING Chunks Sequentially with Immediate Segment Persistence
+    await _updateJobStatus(jobId, JobStatus.transcribing);
 
     const double transcriptionStartProgress = 0.28;
     const double transcriptionEndProgress = 0.82;
     const double transcriptionSpan = transcriptionEndProgress - transcriptionStartProgress;
 
+    final existingSegments = await db.getSegmentsForJob(jobId);
+    int globalSegmentIndex = existingSegments.length;
+
     for (int i = 0; i < totalChunks; i++) {
       final chunkId = '${jobId}_chunk_$i';
       final chunkPath = chunkPaths[i];
-
       final currentChunkProgress = transcriptionStartProgress + (transcriptionSpan * (i / totalChunks));
+
+      final allChunks = await db.getChunksForJob(jobId);
+      final chunkRecord = allChunks.firstWhere((c) => c.id == chunkId);
+
+      // Checkpoint: skip already completed chunk!
+      if (chunkRecord.status == 'COMPLETED') {
+        yield PipelineProgress(
+          jobId: jobId,
+          status: JobStatus.transcribing,
+          currentChunk: i + 1,
+          totalChunks: totalChunks,
+          progressPercent: currentChunkProgress,
+          statusMessage: 'Chunk ${i + 1}/$totalChunks already completed (cached) — skipping...',
+          elapsedTime: stopwatch.elapsed,
+          estimatedRemainingTime: computeEta(currentChunkProgress),
+          extractedAudioSizeBytes: extractedAudioBytes,
+        );
+        continue;
+      }
 
       yield PipelineProgress(
         jobId: jobId,
@@ -297,88 +412,101 @@ class PipelineCoordinator {
         extractedAudioSizeBytes: extractedAudioBytes,
       );
 
-      final chunkRecord = (await db.getChunksForJob(jobId)).firstWhere((c) => c.id == chunkId);
       final offset = chunkRecord.startSeconds;
-
       TranscriptionResult result;
-      switch (providerType) {
-        case TranscriptionProviderType.groqWhisperLargeV3:
-          result = await groqProvider.transcribeChunk(
-            audioChunkPath: chunkPath,
-            apiKey: apiKey,
-            sourceLanguage: sourceLang.bcp47,
-          );
-          break;
-        case TranscriptionProviderType.gemini25Transcribe:
-          result = await geminiProvider.transcribeChunk(
-            audioChunkPath: chunkPath,
-            apiKey: apiKey,
-            sourceLanguage: sourceLang.bcp47,
-          );
-          break;
-        case TranscriptionProviderType.deepgramNova3:
-          result = await deepgramProvider.transcribeChunk(
-            audioChunkPath: chunkPath,
-            apiKey: apiKey,
-            sourceLanguage: sourceLang.bcp47,
-          );
-          break;
-      }
 
-      for (final seg in result.segments) {
-        final adjusted = seg.copyWithOffset(offset, globalSegmentIndex++);
-        allSegmentsToInsert.add(TranscriptSegmentsCompanion.insert(
-          jobId: jobId,
-          chunkId: chunkId,
-          segmentIndex: adjusted.index,
-          startSeconds: adjusted.startSeconds,
-          endSeconds: adjusted.endSeconds,
-          sourceText: adjusted.text,
-          speakerTag: Value(adjusted.speakerTag),
-        ));
-      }
-
-      await db.updateChunk(ChunksCompanion(
-        id: Value(chunkId),
-        status: const Value('COMPLETED'),
-        completedAt: Value(BigInt.from(DateTime.now().millisecondsSinceEpoch)),
-      ));
-
-      // Clean up chunk audio immediately after transcribing
       try {
-        final chunkFile = File(chunkPath);
-        if (await chunkFile.exists()) {
-          await chunkFile.delete();
+        switch (providerType) {
+          case TranscriptionProviderType.groqWhisperLargeV3:
+            result = await groqProvider.transcribeChunk(
+              audioChunkPath: chunkPath,
+              apiKey: apiKey,
+              sourceLanguage: sourceLang.bcp47,
+            );
+            break;
+          case TranscriptionProviderType.gemini25Transcribe:
+            result = await geminiProvider.transcribeChunk(
+              audioChunkPath: chunkPath,
+              apiKey: apiKey,
+              sourceLanguage: sourceLang.bcp47,
+            );
+            break;
+          case TranscriptionProviderType.deepgramNova3:
+            result = await deepgramProvider.transcribeChunk(
+              audioChunkPath: chunkPath,
+              apiKey: apiKey,
+              sourceLanguage: sourceLang.bcp47,
+            );
+            break;
         }
-      } catch (_) {}
 
-      final afterChunkProgress = transcriptionStartProgress + (transcriptionSpan * ((i + 1) / totalChunks));
-      yield PipelineProgress(
-        jobId: jobId,
-        status: JobStatus.transcribing,
-        currentChunk: i + 1,
-        totalChunks: totalChunks,
-        progressPercent: afterChunkProgress,
-        statusMessage: 'Processed chunk ${i + 1} of $totalChunks (${result.segments.length} cues detected)',
-        elapsedTime: stopwatch.elapsed,
-        estimatedRemainingTime: computeEta(afterChunkProgress),
-        extractedAudioSizeBytes: extractedAudioBytes,
-      );
+        // Insert segments into SQLite IMMEDIATELY per chunk!
+        final chunkSegments = <TranscriptSegmentsCompanion>[];
+        for (final seg in result.segments) {
+          final adjusted = seg.copyWithOffset(offset, globalSegmentIndex++);
+          chunkSegments.add(TranscriptSegmentsCompanion.insert(
+            jobId: jobId,
+            chunkId: chunkId,
+            segmentIndex: adjusted.index,
+            startSeconds: adjusted.startSeconds,
+            endSeconds: adjusted.endSeconds,
+            sourceText: adjusted.text,
+            speakerTag: Value(adjusted.speakerTag),
+          ));
+        }
+
+        if (chunkSegments.isNotEmpty) {
+          await db.insertSegments(chunkSegments);
+        }
+
+        await db.updateChunk(ChunksCompanion(
+          id: Value(chunkId),
+          status: const Value('COMPLETED'),
+          completedAt: Value(BigInt.from(DateTime.now().millisecondsSinceEpoch)),
+        ));
+
+        // Clean up individual chunk audio file immediately after transcribing
+        try {
+          final chunkFile = File(chunkPath);
+          if (await chunkFile.exists()) {
+            await chunkFile.delete();
+          }
+        } catch (_) {}
+
+        final afterChunkProgress = transcriptionStartProgress + (transcriptionSpan * ((i + 1) / totalChunks));
+        yield PipelineProgress(
+          jobId: jobId,
+          status: JobStatus.transcribing,
+          currentChunk: i + 1,
+          totalChunks: totalChunks,
+          progressPercent: afterChunkProgress,
+          statusMessage: 'Processed chunk ${i + 1} of $totalChunks (${result.segments.length} cues detected)',
+          elapsedTime: stopwatch.elapsed,
+          estimatedRemainingTime: computeEta(afterChunkProgress),
+          extractedAudioSizeBytes: extractedAudioBytes,
+        );
+      } catch (err) {
+        final failTime = DateTime.now().millisecondsSinceEpoch;
+        await db.updateChunk(ChunksCompanion(
+          id: Value(chunkId),
+          status: const Value('FAILED'),
+          errorMessage: Value(err.toString()),
+        ));
+        await db.updateJob(JobsCompanion(
+          id: Value(jobId),
+          status: Value(JobStatus.failed.name),
+          failedStage: const Value('transcribing'),
+          currentChunkIndex: Value(i),
+          errorMessage: Value('Chunk ${i + 1}/$totalChunks failed: $err'),
+          interruptedAt: Value(BigInt.from(failTime)),
+          updatedAt: Value(BigInt.from(failTime)),
+        ));
+        rethrow;
+      }
     }
 
-    // Persist all segments
-    await db.insertSegments(allSegmentsToInsert);
-
-    // Delete full audio file
-    try {
-      final fullAudioFile = File(fullAudioPath);
-      if (await fullAudioFile.exists()) {
-        await fullAudioFile.delete();
-      }
-    } catch (_) {}
-
     // 5. TRANSLATING (Stage 2)
-    final segmentsFromDb = await db.getSegmentsForJob(jobId);
+    final allJobSegments = await db.getSegmentsForJob(jobId);
 
     if (translationModel != TranslationModelType.none && translationApiKey != null) {
       await _updateJobStatus(jobId, JobStatus.translating);
@@ -394,18 +522,35 @@ class PipelineCoordinator {
         extractedAudioSizeBytes: extractedAudioBytes,
       );
 
-      final inputs = segmentsFromDb
-          .map((s) => TranslationSegmentInput(id: s.id, source: s.sourceText))
-          .toList();
+      final unTranslated = allJobSegments.where((s) => !s.isTranslated).toList();
 
-      final outputs = await translationService.translateSegments(
-        segments: inputs,
-        modelType: translationModel,
-        apiKey: translationApiKey,
-      );
+      if (unTranslated.isNotEmpty) {
+        final inputs = unTranslated
+            .map((s) => TranslationSegmentInput(id: s.id, source: s.sourceText))
+            .toList();
 
-      for (final out in outputs) {
-        await db.updateSegmentTranslation(out.id, out.translation);
+        try {
+          final outputs = await translationService.translateSegments(
+            segments: inputs,
+            modelType: translationModel,
+            apiKey: translationApiKey,
+          );
+
+          for (final out in outputs) {
+            await db.updateSegmentTranslation(out.id, out.translation);
+          }
+        } catch (err) {
+          final failTime = DateTime.now().millisecondsSinceEpoch;
+          await db.updateJob(JobsCompanion(
+            id: Value(jobId),
+            status: Value(JobStatus.failed.name),
+            failedStage: const Value('translating'),
+            errorMessage: Value('Translation failed: $err'),
+            interruptedAt: Value(BigInt.from(failTime)),
+            updatedAt: Value(BigInt.from(failTime)),
+          ));
+          rethrow;
+        }
       }
     }
 
@@ -462,7 +607,7 @@ class PipelineCoordinator {
       title: baseTitle,
       originalFilename: filename,
       sourceLanguage: sourceLang.bcp47,
-      durationSeconds: extractionResult.durationSeconds,
+      durationSeconds: videoDurationSeconds,
       providerUsed: providerType.displayName,
       translationModel: Value(translationModel.displayName),
       cueCount: cues.length,
@@ -475,6 +620,14 @@ class PipelineCoordinator {
 
     // 8. Mark Job as COMPLETED
     await _updateJobStatus(jobId, JobStatus.completed);
+
+    // 9. CLEAN UP INTERMEDIATE AUDIO & CHUNKS ON SUCCESS
+    await audioCacheManager.deleteCachedAudio(fullAudioPath);
+    try {
+      if (await jobTempDir.exists()) {
+        await jobTempDir.delete(recursive: true);
+      }
+    } catch (_) {}
 
     yield PipelineProgress(
       jobId: jobId,

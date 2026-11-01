@@ -9,12 +9,15 @@ import 'package:path_provider/path_provider.dart';
 
 import '../../core/constants/enums.dart';
 import '../../core/providers.dart';
+import '../../core/storage/database.dart';
 import '../../features/media/media_engine.dart';
 import '../../features/transcription/pipeline_coordinator.dart';
 import '../theme/app_theme.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
-  const HomeScreen({super.key});
+  final JobEntry? initialResumeJob;
+
+  const HomeScreen({super.key, this.initialResumeJob});
 
   @override
   ConsumerState<HomeScreen> createState() => _HomeScreenState();
@@ -28,6 +31,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   MediaInfo? _mediaInfo;
   int _selectedAudioStreamIndex = 0;
   bool _isProbing = false;
+  JobEntry? _incompleteJob;
 
   SourceLanguage _selectedLanguage = SourceLanguage.auto;
   TranscriptionProviderType _selectedProvider = TranscriptionProviderType.gemini25Transcribe;
@@ -74,6 +78,26 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     if (Platform.isAndroid) {
       _mediaChannel.invokeMethod('requestMediaPermission').catchError((_) => null);
     }
+    if (widget.initialResumeJob != null) {
+      final job = widget.initialResumeJob!;
+      _selectedVideoPath = job.videoFilePath;
+      _selectedVideoName = job.originalFilename;
+      _selectedAudioStreamIndex = job.audioStreamIndex;
+      _incompleteJob = job;
+      _probeInitialVideo(job.videoFilePath);
+    }
+  }
+
+  Future<void> _probeInitialVideo(String path) async {
+    try {
+      final engine = ref.read(mediaEngineProvider);
+      final info = await engine.probe(path);
+      if (mounted) {
+        setState(() {
+          _mediaInfo = info;
+        });
+      }
+    } catch (_) {}
   }
 
   Future<void> _pickVideo() async {
@@ -104,10 +128,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         // Intelligently resolve the real video filename if Android photo picker assigned a numeric ID
         final realName = await _resolveRealFilename(path, displayName, info.fileSizeBytes);
 
+        final db = ref.read(databaseProvider);
+        final incomplete = await db.findIncompleteJobForFile(realName, info.fileSizeBytes);
+
         setState(() {
           _mediaInfo = info;
           _selectedVideoName = realName;
           _selectedAudioStreamIndex = info.primaryAudioTrack?.streamIndex ?? 0;
+          _incompleteJob = incomplete;
           _isProbing = false;
         });
       } catch (e) {
@@ -210,7 +238,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
-  Future<void> _startProcessing() async {
+  Future<void> _startProcessing({String? resumeJobId}) async {
     if (_selectedVideoPath == null) return;
 
     final coordinator = ref.read(pipelineCoordinatorProvider);
@@ -246,6 +274,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       _isProcessing = true;
     });
 
+    final activeResumeId = resumeJobId ?? _incompleteJob?.id;
+
     try {
       final stream = coordinator.processVideo(
         videoPath: _selectedVideoPath!,
@@ -256,6 +286,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         translationModel: _selectedTranslationModel,
         tempWorkDir: tempDir.path,
         outputDir: outDir,
+        resumeJobId: activeResumeId,
       );
 
       await for (final progress in stream) {
@@ -264,6 +295,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           _currentProgress = progress;
         });
       }
+
+      _incompleteJob = null;
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -286,6 +319,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         );
       }
     } catch (e) {
+      if (_selectedVideoName != null && _mediaInfo != null) {
+        final db = ref.read(databaseProvider);
+        _incompleteJob = await db.findIncompleteJobForFile(_selectedVideoName!, _mediaInfo!.fileSizeBytes);
+      }
       if (mounted) {
         showDialog(
           context: context,
@@ -294,16 +331,28 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
             title: const Row(
               children: [
-                Icon(Icons.error_outline_rounded, color: Colors.redAccent),
+                Icon(Icons.error_outline_rounded, color: Colors.amberAccent),
                 SizedBox(width: 8),
-                Text('Processing Error', style: TextStyle(color: Colors.white)),
+                Text('Run Interrupted', style: TextStyle(color: Colors.white)),
               ],
             ),
-            content: Text(e.toString(), style: const TextStyle(color: Colors.white70)),
+            content: Text(
+              'Generation stopped: $e\n\nAll completed chunks and extracted audio have been safely preserved. You can resume this job anytime from the "Runs" tab without losing compute.',
+              style: const TextStyle(color: Colors.white70, fontSize: 13, height: 1.4),
+            ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(ctx),
                 child: const Text('OK', style: TextStyle(color: AppTheme.accentCyan, fontWeight: FontWeight.bold)),
+              ),
+              ElevatedButton.icon(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  _startProcessing(resumeJobId: activeResumeId);
+                },
+                style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryViolet),
+                icon: const Icon(Icons.play_arrow_rounded, size: 16),
+                label: const Text('Retry / Resume'),
               ),
             ],
           ),
@@ -564,6 +613,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               ),
             ),
             const SizedBox(height: 26),
+
+            // --- Incomplete Run Recovery Banner (if prior run stopped midway) ---
+            if (_incompleteJob != null && !_isProcessing) ...[
+              _buildIncompleteJobBanner(cardBg, textPrimary, textSecondary),
+              const SizedBox(height: 18),
+            ],
 
             // --- Live Processing HUD Card with Smooth Progress & ETA ---
             if (_isProcessing && _currentProgress != null) ...[
@@ -888,6 +943,72 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildIncompleteJobBanner(Color cardBg, Color textPrimary, Color textSecondary) {
+    final job = _incompleteJob!;
+    final total = job.totalChunks > 0 ? job.totalChunks : 1;
+    final done = job.currentChunkIndex.clamp(0, total);
+    final percent = ((done / total) * 100).toInt();
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.amber.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.amber.withValues(alpha: 0.4)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.history_toggle_off_rounded, color: Colors.amber, size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Incomplete Run Found: $done of $total chunks ($percent%) saved!',
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: textPrimary),
+                ),
+              ),
+            ],
+          ),
+          if (job.errorMessage != null && job.errorMessage!.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(
+              'Stopped at: ${job.errorMessage}',
+              style: const TextStyle(fontSize: 11, color: Colors.amber, height: 1.3),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              ElevatedButton.icon(
+                onPressed: () => _startProcessing(resumeJobId: job.id),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.primaryViolet,
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                icon: const Icon(Icons.play_arrow_rounded, size: 16),
+                label: Text('Resume from Chunk ${done + 1}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+              ),
+              const SizedBox(width: 8),
+              TextButton(
+                onPressed: () async {
+                  final db = ref.read(databaseProvider);
+                  await db.deleteJobAndData(job.id);
+                  if (mounted) setState(() => _incompleteJob = null);
+                },
+                child: const Text('Start Over', style: TextStyle(color: Colors.white60, fontSize: 12)),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }

@@ -98,7 +98,7 @@ void main() {
       expect(job.status, JobStatus.completed.name);
       print('Job ID: ${job.id}');
       print('Total chunks processed: ${job.totalChunks}');
-      print('Audio Duration: ${job.durationSeconds?.toStringAsFixed(1)}s');
+      print('Audio Duration: ${job.durationSeconds.toStringAsFixed(1)}s');
 
       final allSubtitles = await db.getAllSubtitles();
       expect(allSubtitles.isNotEmpty, true);

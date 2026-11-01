@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'security/secure_storage_service.dart';
+import 'services/audio_cache_manager.dart';
 import 'storage/database.dart';
 import '../features/media/media_engine.dart';
 import '../features/media/process_media_engine.dart';
@@ -32,6 +33,11 @@ final mediaEngineProvider = Provider<MediaEngine>((ref) {
   return const ProcessMediaEngine();
 });
 
+// Audio Cache Manager Provider
+final audioCacheManagerProvider = Provider<AudioCacheManager>((ref) {
+  return AudioCacheManager();
+});
+
 // Translation Service Provider
 final translationServiceProvider = Provider<TranslationService>((ref) {
   return TranslationService();
@@ -44,6 +50,7 @@ final pipelineCoordinatorProvider = Provider<PipelineCoordinator>((ref) {
     mediaEngine: ref.watch(mediaEngineProvider),
     secureStorage: ref.watch(secureStorageProvider),
     translationService: ref.watch(translationServiceProvider),
+    audioCacheManager: ref.watch(audioCacheManagerProvider),
   );
 });
 
@@ -51,6 +58,11 @@ final pipelineCoordinatorProvider = Provider<PipelineCoordinator>((ref) {
 final allJobsStreamProvider = StreamProvider<List<JobEntry>>((ref) {
   final db = ref.watch(databaseProvider);
   return db.watchAllJobs();
+});
+
+final incompleteJobsStreamProvider = StreamProvider<List<JobEntry>>((ref) {
+  final db = ref.watch(databaseProvider);
+  return db.watchIncompleteJobs();
 });
 
 final activeSubtitlesStreamProvider = StreamProvider<List<SubtitleEntry>>((ref) {

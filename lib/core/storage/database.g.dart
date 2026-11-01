@@ -100,6 +100,24 @@ class $JobsTable extends Jobs with TableInfo<$JobsTable, JobEntry> {
   late final GeneratedColumn<String> errorMessage = GeneratedColumn<String>(
       'error_message', aliasedName, true,
       type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _cachedAudioPathMeta =
+      const VerificationMeta('cachedAudioPath');
+  @override
+  late final GeneratedColumn<String> cachedAudioPath = GeneratedColumn<String>(
+      'cached_audio_path', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _failedStageMeta =
+      const VerificationMeta('failedStage');
+  @override
+  late final GeneratedColumn<String> failedStage = GeneratedColumn<String>(
+      'failed_stage', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _interruptedAtMeta =
+      const VerificationMeta('interruptedAt');
+  @override
+  late final GeneratedColumn<BigInt> interruptedAt = GeneratedColumn<BigInt>(
+      'interrupted_at', aliasedName, true,
+      type: DriftSqlType.bigInt, requiredDuringInsert: false);
   static const VerificationMeta _createdAtMeta =
       const VerificationMeta('createdAt');
   @override
@@ -128,6 +146,9 @@ class $JobsTable extends Jobs with TableInfo<$JobsTable, JobEntry> {
         currentChunkIndex,
         totalChunks,
         errorMessage,
+        cachedAudioPath,
+        failedStage,
+        interruptedAt,
         createdAt,
         updatedAt
       ];
@@ -234,6 +255,24 @@ class $JobsTable extends Jobs with TableInfo<$JobsTable, JobEntry> {
           errorMessage.isAcceptableOrUnknown(
               data['error_message']!, _errorMessageMeta));
     }
+    if (data.containsKey('cached_audio_path')) {
+      context.handle(
+          _cachedAudioPathMeta,
+          cachedAudioPath.isAcceptableOrUnknown(
+              data['cached_audio_path']!, _cachedAudioPathMeta));
+    }
+    if (data.containsKey('failed_stage')) {
+      context.handle(
+          _failedStageMeta,
+          failedStage.isAcceptableOrUnknown(
+              data['failed_stage']!, _failedStageMeta));
+    }
+    if (data.containsKey('interrupted_at')) {
+      context.handle(
+          _interruptedAtMeta,
+          interruptedAt.isAcceptableOrUnknown(
+              data['interrupted_at']!, _interruptedAtMeta));
+    }
     if (data.containsKey('created_at')) {
       context.handle(_createdAtMeta,
           createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta));
@@ -283,6 +322,12 @@ class $JobsTable extends Jobs with TableInfo<$JobsTable, JobEntry> {
           .read(DriftSqlType.int, data['${effectivePrefix}total_chunks'])!,
       errorMessage: attachedDatabase.typeMapping
           .read(DriftSqlType.string, data['${effectivePrefix}error_message']),
+      cachedAudioPath: attachedDatabase.typeMapping.read(
+          DriftSqlType.string, data['${effectivePrefix}cached_audio_path']),
+      failedStage: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}failed_stage']),
+      interruptedAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.bigInt, data['${effectivePrefix}interrupted_at']),
       createdAt: attachedDatabase.typeMapping
           .read(DriftSqlType.bigInt, data['${effectivePrefix}created_at'])!,
       updatedAt: attachedDatabase.typeMapping
@@ -311,6 +356,9 @@ class JobEntry extends DataClass implements Insertable<JobEntry> {
   final int currentChunkIndex;
   final int totalChunks;
   final String? errorMessage;
+  final String? cachedAudioPath;
+  final String? failedStage;
+  final BigInt? interruptedAt;
   final BigInt createdAt;
   final BigInt updatedAt;
   const JobEntry(
@@ -328,6 +376,9 @@ class JobEntry extends DataClass implements Insertable<JobEntry> {
       required this.currentChunkIndex,
       required this.totalChunks,
       this.errorMessage,
+      this.cachedAudioPath,
+      this.failedStage,
+      this.interruptedAt,
       required this.createdAt,
       required this.updatedAt});
   @override
@@ -348,6 +399,15 @@ class JobEntry extends DataClass implements Insertable<JobEntry> {
     map['total_chunks'] = Variable<int>(totalChunks);
     if (!nullToAbsent || errorMessage != null) {
       map['error_message'] = Variable<String>(errorMessage);
+    }
+    if (!nullToAbsent || cachedAudioPath != null) {
+      map['cached_audio_path'] = Variable<String>(cachedAudioPath);
+    }
+    if (!nullToAbsent || failedStage != null) {
+      map['failed_stage'] = Variable<String>(failedStage);
+    }
+    if (!nullToAbsent || interruptedAt != null) {
+      map['interrupted_at'] = Variable<BigInt>(interruptedAt);
     }
     map['created_at'] = Variable<BigInt>(createdAt);
     map['updated_at'] = Variable<BigInt>(updatedAt);
@@ -372,6 +432,15 @@ class JobEntry extends DataClass implements Insertable<JobEntry> {
       errorMessage: errorMessage == null && nullToAbsent
           ? const Value.absent()
           : Value(errorMessage),
+      cachedAudioPath: cachedAudioPath == null && nullToAbsent
+          ? const Value.absent()
+          : Value(cachedAudioPath),
+      failedStage: failedStage == null && nullToAbsent
+          ? const Value.absent()
+          : Value(failedStage),
+      interruptedAt: interruptedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(interruptedAt),
       createdAt: Value(createdAt),
       updatedAt: Value(updatedAt),
     );
@@ -395,6 +464,9 @@ class JobEntry extends DataClass implements Insertable<JobEntry> {
       currentChunkIndex: serializer.fromJson<int>(json['currentChunkIndex']),
       totalChunks: serializer.fromJson<int>(json['totalChunks']),
       errorMessage: serializer.fromJson<String?>(json['errorMessage']),
+      cachedAudioPath: serializer.fromJson<String?>(json['cachedAudioPath']),
+      failedStage: serializer.fromJson<String?>(json['failedStage']),
+      interruptedAt: serializer.fromJson<BigInt?>(json['interruptedAt']),
       createdAt: serializer.fromJson<BigInt>(json['createdAt']),
       updatedAt: serializer.fromJson<BigInt>(json['updatedAt']),
     );
@@ -417,6 +489,9 @@ class JobEntry extends DataClass implements Insertable<JobEntry> {
       'currentChunkIndex': serializer.toJson<int>(currentChunkIndex),
       'totalChunks': serializer.toJson<int>(totalChunks),
       'errorMessage': serializer.toJson<String?>(errorMessage),
+      'cachedAudioPath': serializer.toJson<String?>(cachedAudioPath),
+      'failedStage': serializer.toJson<String?>(failedStage),
+      'interruptedAt': serializer.toJson<BigInt?>(interruptedAt),
       'createdAt': serializer.toJson<BigInt>(createdAt),
       'updatedAt': serializer.toJson<BigInt>(updatedAt),
     };
@@ -437,6 +512,9 @@ class JobEntry extends DataClass implements Insertable<JobEntry> {
           int? currentChunkIndex,
           int? totalChunks,
           Value<String?> errorMessage = const Value.absent(),
+          Value<String?> cachedAudioPath = const Value.absent(),
+          Value<String?> failedStage = const Value.absent(),
+          Value<BigInt?> interruptedAt = const Value.absent(),
           BigInt? createdAt,
           BigInt? updatedAt}) =>
       JobEntry(
@@ -455,6 +533,12 @@ class JobEntry extends DataClass implements Insertable<JobEntry> {
         totalChunks: totalChunks ?? this.totalChunks,
         errorMessage:
             errorMessage.present ? errorMessage.value : this.errorMessage,
+        cachedAudioPath: cachedAudioPath.present
+            ? cachedAudioPath.value
+            : this.cachedAudioPath,
+        failedStage: failedStage.present ? failedStage.value : this.failedStage,
+        interruptedAt:
+            interruptedAt.present ? interruptedAt.value : this.interruptedAt,
         createdAt: createdAt ?? this.createdAt,
         updatedAt: updatedAt ?? this.updatedAt,
       );
@@ -495,6 +579,14 @@ class JobEntry extends DataClass implements Insertable<JobEntry> {
       errorMessage: data.errorMessage.present
           ? data.errorMessage.value
           : this.errorMessage,
+      cachedAudioPath: data.cachedAudioPath.present
+          ? data.cachedAudioPath.value
+          : this.cachedAudioPath,
+      failedStage:
+          data.failedStage.present ? data.failedStage.value : this.failedStage,
+      interruptedAt: data.interruptedAt.present
+          ? data.interruptedAt.value
+          : this.interruptedAt,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
     );
@@ -517,6 +609,9 @@ class JobEntry extends DataClass implements Insertable<JobEntry> {
           ..write('currentChunkIndex: $currentChunkIndex, ')
           ..write('totalChunks: $totalChunks, ')
           ..write('errorMessage: $errorMessage, ')
+          ..write('cachedAudioPath: $cachedAudioPath, ')
+          ..write('failedStage: $failedStage, ')
+          ..write('interruptedAt: $interruptedAt, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt')
           ..write(')'))
@@ -539,6 +634,9 @@ class JobEntry extends DataClass implements Insertable<JobEntry> {
       currentChunkIndex,
       totalChunks,
       errorMessage,
+      cachedAudioPath,
+      failedStage,
+      interruptedAt,
       createdAt,
       updatedAt);
   @override
@@ -559,6 +657,9 @@ class JobEntry extends DataClass implements Insertable<JobEntry> {
           other.currentChunkIndex == this.currentChunkIndex &&
           other.totalChunks == this.totalChunks &&
           other.errorMessage == this.errorMessage &&
+          other.cachedAudioPath == this.cachedAudioPath &&
+          other.failedStage == this.failedStage &&
+          other.interruptedAt == this.interruptedAt &&
           other.createdAt == this.createdAt &&
           other.updatedAt == this.updatedAt);
 }
@@ -578,6 +679,9 @@ class JobsCompanion extends UpdateCompanion<JobEntry> {
   final Value<int> currentChunkIndex;
   final Value<int> totalChunks;
   final Value<String?> errorMessage;
+  final Value<String?> cachedAudioPath;
+  final Value<String?> failedStage;
+  final Value<BigInt?> interruptedAt;
   final Value<BigInt> createdAt;
   final Value<BigInt> updatedAt;
   final Value<int> rowid;
@@ -596,6 +700,9 @@ class JobsCompanion extends UpdateCompanion<JobEntry> {
     this.currentChunkIndex = const Value.absent(),
     this.totalChunks = const Value.absent(),
     this.errorMessage = const Value.absent(),
+    this.cachedAudioPath = const Value.absent(),
+    this.failedStage = const Value.absent(),
+    this.interruptedAt = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.rowid = const Value.absent(),
@@ -615,6 +722,9 @@ class JobsCompanion extends UpdateCompanion<JobEntry> {
     this.currentChunkIndex = const Value.absent(),
     this.totalChunks = const Value.absent(),
     this.errorMessage = const Value.absent(),
+    this.cachedAudioPath = const Value.absent(),
+    this.failedStage = const Value.absent(),
+    this.interruptedAt = const Value.absent(),
     required BigInt createdAt,
     required BigInt updatedAt,
     this.rowid = const Value.absent(),
@@ -643,6 +753,9 @@ class JobsCompanion extends UpdateCompanion<JobEntry> {
     Expression<int>? currentChunkIndex,
     Expression<int>? totalChunks,
     Expression<String>? errorMessage,
+    Expression<String>? cachedAudioPath,
+    Expression<String>? failedStage,
+    Expression<BigInt>? interruptedAt,
     Expression<BigInt>? createdAt,
     Expression<BigInt>? updatedAt,
     Expression<int>? rowid,
@@ -662,6 +775,9 @@ class JobsCompanion extends UpdateCompanion<JobEntry> {
       if (currentChunkIndex != null) 'current_chunk_index': currentChunkIndex,
       if (totalChunks != null) 'total_chunks': totalChunks,
       if (errorMessage != null) 'error_message': errorMessage,
+      if (cachedAudioPath != null) 'cached_audio_path': cachedAudioPath,
+      if (failedStage != null) 'failed_stage': failedStage,
+      if (interruptedAt != null) 'interrupted_at': interruptedAt,
       if (createdAt != null) 'created_at': createdAt,
       if (updatedAt != null) 'updated_at': updatedAt,
       if (rowid != null) 'rowid': rowid,
@@ -683,6 +799,9 @@ class JobsCompanion extends UpdateCompanion<JobEntry> {
       Value<int>? currentChunkIndex,
       Value<int>? totalChunks,
       Value<String?>? errorMessage,
+      Value<String?>? cachedAudioPath,
+      Value<String?>? failedStage,
+      Value<BigInt?>? interruptedAt,
       Value<BigInt>? createdAt,
       Value<BigInt>? updatedAt,
       Value<int>? rowid}) {
@@ -701,6 +820,9 @@ class JobsCompanion extends UpdateCompanion<JobEntry> {
       currentChunkIndex: currentChunkIndex ?? this.currentChunkIndex,
       totalChunks: totalChunks ?? this.totalChunks,
       errorMessage: errorMessage ?? this.errorMessage,
+      cachedAudioPath: cachedAudioPath ?? this.cachedAudioPath,
+      failedStage: failedStage ?? this.failedStage,
+      interruptedAt: interruptedAt ?? this.interruptedAt,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       rowid: rowid ?? this.rowid,
@@ -752,6 +874,15 @@ class JobsCompanion extends UpdateCompanion<JobEntry> {
     if (errorMessage.present) {
       map['error_message'] = Variable<String>(errorMessage.value);
     }
+    if (cachedAudioPath.present) {
+      map['cached_audio_path'] = Variable<String>(cachedAudioPath.value);
+    }
+    if (failedStage.present) {
+      map['failed_stage'] = Variable<String>(failedStage.value);
+    }
+    if (interruptedAt.present) {
+      map['interrupted_at'] = Variable<BigInt>(interruptedAt.value);
+    }
     if (createdAt.present) {
       map['created_at'] = Variable<BigInt>(createdAt.value);
     }
@@ -781,6 +912,9 @@ class JobsCompanion extends UpdateCompanion<JobEntry> {
           ..write('currentChunkIndex: $currentChunkIndex, ')
           ..write('totalChunks: $totalChunks, ')
           ..write('errorMessage: $errorMessage, ')
+          ..write('cachedAudioPath: $cachedAudioPath, ')
+          ..write('failedStage: $failedStage, ')
+          ..write('interruptedAt: $interruptedAt, ')
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('rowid: $rowid')
@@ -3412,6 +3546,9 @@ typedef $$JobsTableCreateCompanionBuilder = JobsCompanion Function({
   Value<int> currentChunkIndex,
   Value<int> totalChunks,
   Value<String?> errorMessage,
+  Value<String?> cachedAudioPath,
+  Value<String?> failedStage,
+  Value<BigInt?> interruptedAt,
   required BigInt createdAt,
   required BigInt updatedAt,
   Value<int> rowid,
@@ -3431,6 +3568,9 @@ typedef $$JobsTableUpdateCompanionBuilder = JobsCompanion Function({
   Value<int> currentChunkIndex,
   Value<int> totalChunks,
   Value<String?> errorMessage,
+  Value<String?> cachedAudioPath,
+  Value<String?> failedStage,
+  Value<BigInt?> interruptedAt,
   Value<BigInt> createdAt,
   Value<BigInt> updatedAt,
   Value<int> rowid,
@@ -3467,6 +3607,9 @@ class $$JobsTableTableManager extends RootTableManager<
             Value<int> currentChunkIndex = const Value.absent(),
             Value<int> totalChunks = const Value.absent(),
             Value<String?> errorMessage = const Value.absent(),
+            Value<String?> cachedAudioPath = const Value.absent(),
+            Value<String?> failedStage = const Value.absent(),
+            Value<BigInt?> interruptedAt = const Value.absent(),
             Value<BigInt> createdAt = const Value.absent(),
             Value<BigInt> updatedAt = const Value.absent(),
             Value<int> rowid = const Value.absent(),
@@ -3486,6 +3629,9 @@ class $$JobsTableTableManager extends RootTableManager<
             currentChunkIndex: currentChunkIndex,
             totalChunks: totalChunks,
             errorMessage: errorMessage,
+            cachedAudioPath: cachedAudioPath,
+            failedStage: failedStage,
+            interruptedAt: interruptedAt,
             createdAt: createdAt,
             updatedAt: updatedAt,
             rowid: rowid,
@@ -3505,6 +3651,9 @@ class $$JobsTableTableManager extends RootTableManager<
             Value<int> currentChunkIndex = const Value.absent(),
             Value<int> totalChunks = const Value.absent(),
             Value<String?> errorMessage = const Value.absent(),
+            Value<String?> cachedAudioPath = const Value.absent(),
+            Value<String?> failedStage = const Value.absent(),
+            Value<BigInt?> interruptedAt = const Value.absent(),
             required BigInt createdAt,
             required BigInt updatedAt,
             Value<int> rowid = const Value.absent(),
@@ -3524,6 +3673,9 @@ class $$JobsTableTableManager extends RootTableManager<
             currentChunkIndex: currentChunkIndex,
             totalChunks: totalChunks,
             errorMessage: errorMessage,
+            cachedAudioPath: cachedAudioPath,
+            failedStage: failedStage,
+            interruptedAt: interruptedAt,
             createdAt: createdAt,
             updatedAt: updatedAt,
             rowid: rowid,
@@ -3601,6 +3753,21 @@ class $$JobsTableFilterComposer
 
   ColumnFilters<String> get errorMessage => $state.composableBuilder(
       column: $state.table.errorMessage,
+      builder: (column, joinBuilders) =>
+          ColumnFilters(column, joinBuilders: joinBuilders));
+
+  ColumnFilters<String> get cachedAudioPath => $state.composableBuilder(
+      column: $state.table.cachedAudioPath,
+      builder: (column, joinBuilders) =>
+          ColumnFilters(column, joinBuilders: joinBuilders));
+
+  ColumnFilters<String> get failedStage => $state.composableBuilder(
+      column: $state.table.failedStage,
+      builder: (column, joinBuilders) =>
+          ColumnFilters(column, joinBuilders: joinBuilders));
+
+  ColumnFilters<BigInt> get interruptedAt => $state.composableBuilder(
+      column: $state.table.interruptedAt,
       builder: (column, joinBuilders) =>
           ColumnFilters(column, joinBuilders: joinBuilders));
 
@@ -3728,6 +3895,21 @@ class $$JobsTableOrderingComposer
 
   ColumnOrderings<String> get errorMessage => $state.composableBuilder(
       column: $state.table.errorMessage,
+      builder: (column, joinBuilders) =>
+          ColumnOrderings(column, joinBuilders: joinBuilders));
+
+  ColumnOrderings<String> get cachedAudioPath => $state.composableBuilder(
+      column: $state.table.cachedAudioPath,
+      builder: (column, joinBuilders) =>
+          ColumnOrderings(column, joinBuilders: joinBuilders));
+
+  ColumnOrderings<String> get failedStage => $state.composableBuilder(
+      column: $state.table.failedStage,
+      builder: (column, joinBuilders) =>
+          ColumnOrderings(column, joinBuilders: joinBuilders));
+
+  ColumnOrderings<BigInt> get interruptedAt => $state.composableBuilder(
+      column: $state.table.interruptedAt,
       builder: (column, joinBuilders) =>
           ColumnOrderings(column, joinBuilders: joinBuilders));
 
