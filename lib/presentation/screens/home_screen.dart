@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -34,6 +35,38 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   bool _isProcessing = false;
   PipelineProgress? _currentProgress;
+  DateTime? _processStartTime;
+  Duration _liveElapsed = Duration.zero;
+  Timer? _liveTicker;
+
+  @override
+  void dispose() {
+    _liveTicker?.cancel();
+    super.dispose();
+  }
+
+  String get _formattedLiveElapsed {
+    final m = _liveElapsed.inMinutes.toString().padLeft(2, '0');
+    final s = (_liveElapsed.inSeconds % 60).toString().padLeft(2, '0');
+    return '$m:$s';
+  }
+
+  String _calculateLiveEta(double progressPercent) {
+    if (progressPercent <= 0.05 || _liveElapsed.inSeconds < 2) {
+      return 'calculating...';
+    }
+    if (progressPercent >= 1.0) {
+      return 'finishing up...';
+    }
+    final estimatedTotalSec = _liveElapsed.inSeconds / progressPercent;
+    final remainingSec = (estimatedTotalSec - _liveElapsed.inSeconds).round().clamp(1, 3600);
+    if (remainingSec < 60) {
+      return '~${remainingSec}s remaining';
+    }
+    final m = remainingSec ~/ 60;
+    final s = remainingSec % 60;
+    return '~${m}m ${s}s remaining';
+  }
 
   @override
   void initState() {
@@ -196,6 +229,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       outDir = (await getApplicationDocumentsDirectory()).path;
     }
 
+    _processStartTime = DateTime.now();
+    _liveElapsed = Duration.zero;
+    _liveTicker?.cancel();
+    _liveTicker = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted || !_isProcessing) {
+        timer.cancel();
+        return;
+      }
+      setState(() {
+        _liveElapsed = DateTime.now().difference(_processStartTime!);
+      });
+    });
+
     setState(() {
       _isProcessing = true;
     });
@@ -264,6 +310,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         );
       }
     } finally {
+      _liveTicker?.cancel();
+      _liveTicker = null;
       if (mounted) {
         setState(() {
           _isProcessing = false;
@@ -846,102 +894,199 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   Widget _buildProgressCard(Color cardBg, Color textPrimary, Color textSecondary) {
     final progress = _currentProgress!;
-    final percent = (progress.progressPercent * 100).clamp(0, 100).toInt();
+    final targetPercent = progress.progressPercent.clamp(0.0, 1.0);
 
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         color: cardBg,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(20),
         border: Border.all(color: AppTheme.primaryViolet.withValues(alpha: 0.5)),
         boxShadow: [
           BoxShadow(
-            color: AppTheme.primaryViolet.withValues(alpha: 0.15),
-            blurRadius: 18,
-            offset: const Offset(0, 4),
+            color: AppTheme.primaryViolet.withValues(alpha: 0.18),
+            blurRadius: 20,
+            offset: const Offset(0, 6),
           ),
         ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Row(
+          // Header with stage status + smooth percentage counter
+          TweenAnimationBuilder<double>(
+            tween: Tween<double>(begin: 0, end: targetPercent),
+            duration: const Duration(milliseconds: 500),
+            curve: Curves.easeOutCubic,
+            builder: (context, animVal, _) {
+              final percentInt = (animVal * 100).toInt().clamp(0, 100);
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const SizedBox(
-                    width: 14,
-                    height: 14,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.accentCyan),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            width: 10,
+                            height: 10,
+                            decoration: const BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: AppTheme.accentCyan,
+                              boxShadow: [
+                                BoxShadow(
+                                  color: AppTheme.accentCyan,
+                                  blurRadius: 8,
+                                  spreadRadius: 2,
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Text(
+                            progress.status.displayName,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 14,
+                              color: AppTheme.accentCyan,
+                            ),
+                          ),
+                        ],
+                      ),
+                      Text(
+                        '$percentInt%',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 18,
+                          color: textPrimary,
+                          fontFeatures: const [FontFeature.tabularFigures()],
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 10),
-                  Text(
-                    progress.status.displayName,
-                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: AppTheme.accentCyan),
+                  const SizedBox(height: 12),
+                  // Animated gradient progress bar with glowing leading edge
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: Stack(
+                      children: [
+                        Container(
+                          height: 10,
+                          color: AppTheme.primaryViolet.withValues(alpha: 0.15),
+                        ),
+                        FractionallySizedBox(
+                          widthFactor: animVal.clamp(0.02, 1.0),
+                          child: Container(
+                            height: 10,
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(
+                                colors: [AppTheme.primaryViolet, AppTheme.accentCyan],
+                              ),
+                              borderRadius: BorderRadius.circular(8),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: AppTheme.accentCyan.withValues(alpha: 0.6),
+                                  blurRadius: 6,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ],
+              );
+            },
+          ),
+          const SizedBox(height: 12),
+          // Live status message with active spinner
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              const SizedBox(
+                width: 12,
+                height: 12,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  valueColor: AlwaysStoppedAnimation<Color>(AppTheme.accentCyan),
+                ),
               ),
-              Text(
-                '$percent%',
-                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: textPrimary),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  progress.statusMessage,
+                  style: TextStyle(
+                    color: textSecondary,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    height: 1.3,
+                  ),
+                ),
               ),
             ],
           ),
-          const SizedBox(height: 12),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(8),
-            child: LinearProgressIndicator(
-              value: progress.progressPercent.clamp(0.0, 1.0),
-              minHeight: 8,
-              backgroundColor: AppTheme.primaryViolet.withValues(alpha: 0.15),
-              valueColor: const AlwaysStoppedAnimation(AppTheme.primaryViolet),
-            ),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            progress.statusMessage,
-            style: TextStyle(color: textSecondary, fontSize: 12, height: 1.3),
-          ),
-          const SizedBox(height: 12),
-          // Consistent Time Stats: Elapsed • Estimated Time Remaining (ETA) • Extracted Audio Size
+          const SizedBox(height: 14),
+          // Pipeline Step Pills (Extract -> Chunk -> Transcribe -> Translate -> Format)
+          _buildPipelineSteps(progress.status),
+          const SizedBox(height: 14),
+          // Live Clock Stats: Elapsed (ticks every second uninterrupted!) • Dynamic ETA • Extracted Audio Size
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             decoration: BoxDecoration(
               color: AppTheme.primaryViolet.withValues(alpha: 0.08),
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppTheme.primaryViolet.withValues(alpha: 0.2)),
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
+                // Live Elapsed Time (seconds tick continuously)
                 Row(
                   children: [
-                    const Icon(Icons.timer_outlined, size: 14, color: AppTheme.accentCyan),
-                    const SizedBox(width: 4),
+                    const Icon(Icons.timer_outlined, size: 15, color: AppTheme.accentCyan),
+                    const SizedBox(width: 5),
                     Text(
-                      'Elapsed: ${progress.elapsedFormatted}',
-                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: textSecondary),
+                      'Elapsed: $_formattedLiveElapsed',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: textSecondary,
+                        fontFeatures: const [FontFeature.tabularFigures()],
+                      ),
                     ),
                   ],
                 ),
+                // Live Dynamic ETA (recalculates every second based on elapsed time and progress)
                 Row(
                   children: [
-                    const Icon(Icons.hourglass_bottom_rounded, size: 14, color: Colors.amberAccent),
-                    const SizedBox(width: 4),
+                    const Icon(Icons.hourglass_bottom_rounded, size: 15, color: Colors.amberAccent),
+                    const SizedBox(width: 5),
                     Text(
-                      'ETA: ${progress.etaFormatted}',
-                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Colors.amberAccent),
+                      'ETA: ${_calculateLiveEta(targetPercent)}',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.amberAccent,
+                        fontFeatures: [FontFeature.tabularFigures()],
+                      ),
                     ),
                   ],
                 ),
+                // Extracted Audio Size
                 if (progress.audioSizeFormatted.isNotEmpty)
                   Row(
                     children: [
-                      const Icon(Icons.graphic_eq_rounded, size: 14, color: Colors.greenAccent),
-                      const SizedBox(width: 4),
+                      const Icon(Icons.graphic_eq_rounded, size: 15, color: Colors.greenAccent),
+                      const SizedBox(width: 5),
                       Text(
                         progress.audioSizeFormatted,
-                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.greenAccent),
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.greenAccent,
+                        ),
                       ),
                     ],
                   ),
@@ -949,6 +1094,83 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildPipelineSteps(JobStatus currentStatus) {
+    const steps = [
+      (JobStatus.extractingAudio, 'Audio', Icons.audiotrack_rounded),
+      (JobStatus.chunking, 'VAD', Icons.content_cut_rounded),
+      (JobStatus.transcribing, 'Transcribe', Icons.mic_rounded),
+      (JobStatus.translating, 'Translate', Icons.translate_rounded),
+      (JobStatus.formatting, 'SRT/VTT', Icons.subtitles_rounded),
+    ];
+
+    final currentIdx = steps.indexWhere((s) => s.$1 == currentStatus);
+
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: steps.asMap().entries.map((entry) {
+          final idx = entry.key;
+          final step = entry.value;
+          final isCompleted = currentIdx > idx || currentStatus == JobStatus.completed;
+          final isActive = currentIdx == idx && currentStatus != JobStatus.completed;
+
+          Color badgeBg;
+          Color badgeBorder;
+          Color textColor;
+          Widget icon;
+
+          if (isCompleted) {
+            badgeBg = Colors.green.withValues(alpha: 0.15);
+            badgeBorder = Colors.greenAccent.withValues(alpha: 0.4);
+            textColor = Colors.greenAccent;
+            icon = const Icon(Icons.check_rounded, size: 12, color: Colors.greenAccent);
+          } else if (isActive) {
+            badgeBg = AppTheme.accentCyan.withValues(alpha: 0.15);
+            badgeBorder = AppTheme.accentCyan;
+            textColor = AppTheme.accentCyan;
+            icon = const SizedBox(
+              width: 10,
+              height: 10,
+              child: CircularProgressIndicator(strokeWidth: 1.8, color: AppTheme.accentCyan),
+            );
+          } else {
+            badgeBg = Colors.white.withValues(alpha: 0.04);
+            badgeBorder = Colors.white.withValues(alpha: 0.08);
+            textColor = Colors.white38;
+            icon = Icon(step.$3, size: 12, color: Colors.white38);
+          }
+
+          return Padding(
+            padding: const EdgeInsets.only(right: 6),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: badgeBg,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: badgeBorder),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  icon,
+                  const SizedBox(width: 5),
+                  Text(
+                    step.$2,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
+                      color: textColor,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }).toList(),
       ),
     );
   }
