@@ -61,6 +61,7 @@ class GroqWhisperProvider implements BaseTranscriptionProvider {
     required String audioChunkPath,
     required String apiKey,
     String? sourceLanguage,
+    String? prompt,
   }) async {
     final file = File(audioChunkPath);
     if (!await file.exists()) {
@@ -86,6 +87,7 @@ class GroqWhisperProvider implements BaseTranscriptionProvider {
           'response_format': 'verbose_json',
           'temperature': '0.0',
           if (normalizedLang.isNotEmpty) 'language': normalizedLang,
+          if (prompt != null && prompt.isNotEmpty) 'prompt': prompt,
         });
 
         final response = await _dio.post(

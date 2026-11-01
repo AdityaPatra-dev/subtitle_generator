@@ -46,6 +46,7 @@ class DeepgramNovaProvider implements BaseTranscriptionProvider {
     required String audioChunkPath,
     required String apiKey,
     String? sourceLanguage,
+    String? prompt,
   }) async {
     final file = File(audioChunkPath);
     if (!await file.exists()) {
@@ -60,6 +61,7 @@ class DeepgramNovaProvider implements BaseTranscriptionProvider {
       'utterances': 'true',
       'punctuate': 'true',
       if (normalizedLang != null && normalizedLang.isNotEmpty) 'language': normalizedLang,
+      if (prompt != null && prompt.isNotEmpty) 'keywords': 'combat:2,shout:2,dialogue:2',
     };
 
     try {

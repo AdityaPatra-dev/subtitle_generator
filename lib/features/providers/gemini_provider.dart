@@ -55,6 +55,7 @@ class GeminiProvider implements BaseTranscriptionProvider {
     required String audioChunkPath,
     required String apiKey,
     String? sourceLanguage,
+    String? prompt,
   }) async {
     final file = File(audioChunkPath);
     if (!await file.exists()) {
@@ -68,12 +69,16 @@ class GeminiProvider implements BaseTranscriptionProvider {
         ? 'The audio spoken language is $sourceLanguage.'
         : 'Detect the spoken language automatically.';
 
+    final extraAcousticDirective = (prompt != null && prompt.isNotEmpty)
+        ? '\nDOMAIN & ACOUSTIC DIRECTIVE: $prompt\nMANDATORY: Capture ALL speech, shouting during intense combat or explosions, whispered lines, and synthesized, robotic, computerized, metallic, or demonic villain voices. Never discard distorted character speech as background noise.'
+        : '';
+
     final payload = {
       'contents': [
         {
           'parts': [
             {
-              'text': 'You are a professional video subtitler. Transcribe this audio accurately into short, natural subtitle cues conforming strictly to standard subtitling rules. $langPrompt\n'
+              'text': 'You are a professional video subtitler. Transcribe this audio accurately into short, natural subtitle cues conforming strictly to standard subtitling rules. $langPrompt$extraAcousticDirective\n'
                   'MANDATORY SUBTITLING RULES:\n'
                   '1. Each subtitle cue MUST be short (typically 2.0 to 5.0 seconds, maximum 6.5 seconds).\n'
                   '2. NEVER combine long speeches, paragraphs, or multiple unrelated sentences into a single cue.\n'

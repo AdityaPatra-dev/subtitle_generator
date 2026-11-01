@@ -34,6 +34,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   JobEntry? _incompleteJob;
 
   SourceLanguage _selectedLanguage = SourceLanguage.auto;
+  TargetLanguage _selectedTargetLanguage = TargetLanguage.en;
+  SpeechProfile _selectedSpeechProfile = SpeechProfile.actionDonghua;
   TranscriptionProviderType _selectedProvider = TranscriptionProviderType.gemini25Transcribe;
   TranslationModelType _selectedTranslationModel = TranslationModelType.gemini25Flash;
 
@@ -282,6 +284,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         originalFilename: _selectedVideoName,
         audioStreamIndex: _selectedAudioStreamIndex,
         sourceLang: _selectedLanguage,
+        targetLang: _selectedTargetLanguage,
+        speechProfile: _selectedSpeechProfile,
         providerType: _selectedProvider,
         translationModel: _selectedTranslationModel,
         tempWorkDir: tempDir.path,
@@ -378,6 +382,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         selected: _selectedLanguage,
         onSelected: (lang) {
           setState(() => _selectedLanguage = lang);
+          Navigator.pop(ctx);
+        },
+      ),
+    );
+  }
+
+  void _showTargetLanguagePickerModal(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _SearchableTargetLanguageModal(
+        selected: _selectedTargetLanguage,
+        onSelected: (lang) {
+          setState(() => _selectedTargetLanguage = lang);
           Navigator.pop(ctx);
         },
       ),
@@ -536,6 +555,68 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 ),
               ),
             ),
+            const SizedBox(height: 18),
+
+            // --- Output Subtitle Language Selector (Searchable BottomSheet) ---
+            _buildSectionTitle('Output Subtitle Language', Icons.subtitles_rounded, textPrimary),
+            const SizedBox(height: 8),
+            InkWell(
+              onTap: _selectedTranslationModel == TranslationModelType.none
+                  ? null
+                  : () => _showTargetLanguagePickerModal(context),
+              borderRadius: BorderRadius.circular(14),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                decoration: BoxDecoration(
+                  color: cardBg,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: borderCol),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.subtitles_rounded,
+                      color: _selectedTranslationModel == TranslationModelType.none
+                          ? textSecondary
+                          : AppTheme.primaryViolet,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        _selectedTranslationModel == TranslationModelType.none
+                            ? 'Original Language (Translation Disabled)'
+                            : _selectedTargetLanguage.displayName,
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: _selectedTranslationModel == TranslationModelType.none
+                              ? textSecondary
+                              : textPrimary,
+                        ),
+                      ),
+                    ),
+                    if (_selectedTranslationModel != TranslationModelType.none &&
+                        _selectedTargetLanguage == TargetLanguage.en) ...[
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: AppTheme.accentCyan.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: const Text(
+                          'DEFAULT',
+                          style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: AppTheme.accentCyan),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                    ],
+                    if (_selectedTranslationModel != TranslationModelType.none)
+                      Icon(Icons.search_rounded, size: 20, color: textSecondary),
+                  ],
+                ),
+              ),
+            ),
             const SizedBox(height: 22),
 
             // --- AI Transcription Engine ---
@@ -580,6 +661,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               borderCol: borderCol,
               textPrimary: textPrimary,
             ),
+            const SizedBox(height: 22),
+
+            // --- Speech & VAD Engine Profile (Donghua Battle Mode) ---
+            _buildSectionTitle('Speech & VAD Engine Profile', Icons.graphic_eq_rounded, textPrimary),
+            const SizedBox(height: 8),
+            _buildSpeechProfileSelector(cardBg, borderCol, textPrimary, textSecondary, isDark),
             const SizedBox(height: 22),
 
             // --- Translation Target ---
@@ -690,6 +777,125 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14, letterSpacing: 0.1, color: textColor),
         ),
       ],
+    );
+  }
+
+  Widget _buildSpeechProfileSelector(
+    Color cardBg,
+    Color borderCol,
+    Color textPrimary,
+    Color textSecondary,
+    bool isDark,
+  ) {
+    return Column(
+      children: SpeechProfile.values.map((profile) {
+        final isSelected = profile == _selectedSpeechProfile;
+        final isAction = profile == SpeechProfile.actionDonghua;
+
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: InkWell(
+            onTap: () => setState(() => _selectedSpeechProfile = profile),
+            borderRadius: BorderRadius.circular(14),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: isSelected
+                    ? (isDark ? const Color(0xFF1E2638) : const Color(0xFFF1F5FD))
+                    : cardBg,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: isSelected
+                      ? (isAction ? AppTheme.accentCyan : AppTheme.primaryViolet)
+                      : borderCol,
+                  width: isSelected ? 1.8 : 1.0,
+                ),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 38,
+                    height: 38,
+                    decoration: BoxDecoration(
+                      color: isSelected
+                          ? (isAction
+                              ? AppTheme.accentCyan.withValues(alpha: 0.2)
+                              : AppTheme.primaryViolet.withValues(alpha: 0.2))
+                          : (isDark ? Colors.white10 : Colors.black.withValues(alpha: 0.05)),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Icon(
+                      isAction
+                          ? Icons.flash_on_rounded
+                          : (profile == SpeechProfile.standardBalanced
+                              ? Icons.balance_rounded
+                              : Icons.record_voice_over_rounded),
+                      color: isSelected
+                          ? (isAction ? AppTheme.accentCyan : AppTheme.primaryViolet)
+                          : textSecondary,
+                      size: 20,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                profile.displayName,
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
+                                  color: textPrimary,
+                                ),
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: isAction
+                                    ? Colors.cyanAccent.withValues(alpha: 0.15)
+                                    : (isSelected
+                                        ? AppTheme.primaryViolet.withValues(alpha: 0.15)
+                                        : Colors.grey.withValues(alpha: 0.15)),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                profile.badge,
+                                style: TextStyle(
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.bold,
+                                  color: isAction
+                                      ? (isDark ? Colors.cyanAccent : Colors.teal)
+                                      : (isSelected ? AppTheme.primaryViolet : textSecondary),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          profile.description,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: textSecondary,
+                            height: 1.3,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      }).toList(),
     );
   }
 
@@ -1465,6 +1671,184 @@ class _SearchableLanguageModalState extends State<_SearchableLanguageModal> {
                   subtitle: lang.bcp47.isNotEmpty
                       ? Text('Code: ${lang.bcp47}', style: TextStyle(color: textSecondary, fontSize: 11))
                       : null,
+                  trailing: isSelected
+                      ? const Icon(Icons.check_circle_rounded, color: AppTheme.accentCyan, size: 22)
+                      : null,
+                  onTap: () => widget.onSelected(lang),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SearchableTargetLanguageModal extends StatefulWidget {
+  final TargetLanguage selected;
+  final ValueChanged<TargetLanguage> onSelected;
+
+  const _SearchableTargetLanguageModal({
+    required this.selected,
+    required this.onSelected,
+  });
+
+  @override
+  State<_SearchableTargetLanguageModal> createState() => _SearchableTargetLanguageModalState();
+}
+
+class _SearchableTargetLanguageModalState extends State<_SearchableTargetLanguageModal> {
+  final _searchController = TextEditingController();
+  String _searchQuery = '';
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cardBg = isDark ? AppTheme.darkCard : AppTheme.lightCard;
+    final textPrimary = isDark ? Colors.white : AppTheme.lightTextPrimary;
+    final textSecondary = isDark ? Colors.white70 : AppTheme.lightTextSecondary;
+
+    final q = _searchQuery.trim().toLowerCase();
+    const all = TargetLanguage.values;
+
+    final filtered = q.isEmpty
+        ? all
+        : all.where((lang) => lang.matches(q)).toList();
+
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.75,
+      decoration: BoxDecoration(
+        color: cardBg,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: Column(
+        children: [
+          const SizedBox(height: 12),
+          Container(
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+              color: isDark ? Colors.white24 : Colors.black12,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Row(
+              children: [
+                const Icon(Icons.subtitles_rounded, color: AppTheme.accentCyan, size: 22),
+                const SizedBox(width: 10),
+                Text(
+                  'Select Output Subtitle Language',
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 17, color: textPrimary),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          // Search input bar
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: TextField(
+              controller: _searchController,
+              onChanged: (val) => setState(() => _searchQuery = val),
+              decoration: InputDecoration(
+                hintText: 'Search target language (e.g. English, Spanish, Hindi)...',
+                prefixIcon: const Icon(Icons.search_rounded, size: 20),
+                suffixIcon: _searchQuery.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear, size: 18),
+                        onPressed: () {
+                          _searchController.clear();
+                          setState(() => _searchQuery = '');
+                        },
+                      )
+                    : null,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Expanded(
+            child: ListView.separated(
+              itemCount: filtered.length,
+              separatorBuilder: (ctx, i) => Divider(
+                height: 1,
+                color: isDark ? AppTheme.borderSubtle : AppTheme.lightBorderSubtle,
+              ),
+              itemBuilder: (ctx, i) {
+                final lang = filtered[i];
+                final isSelected = lang == widget.selected;
+                final isDefault = lang == TargetLanguage.en;
+                final isMajor = TargetLanguage.majorLanguages.contains(lang);
+
+                return ListTile(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+                  leading: Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: isDefault
+                          ? AppTheme.accentCyan.withValues(alpha: 0.15)
+                          : AppTheme.primaryViolet.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Icon(
+                      isDefault ? Icons.star_rounded : Icons.translate_rounded,
+                      color: isDefault ? AppTheme.accentCyan : AppTheme.primaryViolet,
+                      size: 18,
+                    ),
+                  ),
+                  title: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          lang.displayName,
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                            color: isSelected ? AppTheme.accentCyan : textPrimary,
+                          ),
+                        ),
+                      ),
+                      if (isDefault)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: AppTheme.accentCyan.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: const Text(
+                            'DEFAULT',
+                            style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: AppTheme.accentCyan),
+                          ),
+                        )
+                      else if (isMajor && _searchQuery.isEmpty)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: AppTheme.primaryViolet.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: const Text(
+                            'POPULAR',
+                            style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: AppTheme.primaryViolet),
+                          ),
+                        ),
+                    ],
+                  ),
+                  subtitle: Text(
+                    'Code: ${lang.bcp47} • ${lang.nativeName}',
+                    style: TextStyle(color: textSecondary, fontSize: 11),
+                  ),
                   trailing: isSelected
                       ? const Icon(Icons.check_circle_rounded, color: AppTheme.accentCyan, size: 22)
                       : null,

@@ -30,24 +30,29 @@ class TranslationService {
 
   TranslationService([Dio? dio]) : _dio = dio ?? Dio();
 
-  static const String _systemPrompt = '''
-You are a professional audiovisual subtitle translator specializing in Japanese, Chinese, and Korean to natural English translation.
-Your task is to translate an array of subtitle segments into natural, idiomatic English subtitles following Netflix and BBC standards.
+  static String buildSystemPrompt(String targetLanguage, {bool isCjk = false, bool isRtl = false}) {
+    final maxChars = isCjk ? '18-20 characters per line' : '40-42 characters per line';
+    final rtlNote = isRtl ? '\n7. The target language is written Right-to-Left (RTL). Ensure appropriate punctuation and phrasing.' : '';
+    return '''
+You are a professional audiovisual subtitle translator.
+Your task is to translate an array of subtitle segments into natural, idiomatic $targetLanguage subtitles following standard broadcasting guidelines (Netflix and BBC standards).
 
 RULES:
 1. Maintain exact 1:1 segment mapping. Input contains N segments; output MUST contain exactly N segments with matching "id" values.
 2. Never invent, hallucinate, or alter timestamps. You only provide the "translation" text.
-3. Keep translations concise and readable within standard subtitle reading speeds (under 42 characters per line).
-4. Preserve proper names and cultural terms naturally (e.g., retain common Japanese honorifics like -san or translate appropriately according to context).
+3. Keep translations concise and readable within standard subtitle reading speeds (under $maxChars, at most 2 lines).
+4. Preserve proper character names, cultivation realm terms, martial arts techniques, and cultural terms naturally.
 5. If a segment contains non-speech indicators like [Music], [Laughter], or (Applause), translate or preserve the bracketed notation cleanly.
-6. Return strictly valid JSON adhering to the provided schema with NO conversational chatter or markdown fences.
+6. Return strictly valid JSON adhering to the provided schema with NO conversational chatter or markdown fences.$rtlNote
 ''';
+  }
 
   /// Translates a full list of segments in batches of 60 to 80 segments
   Future<List<TranslationSegmentOutput>> translateSegments({
     required List<TranslationSegmentInput> segments,
     required TranslationModelType modelType,
     required String apiKey,
+    TargetLanguage targetLanguage = TargetLanguage.en,
     int batchSize = 70,
   }) async {
     if (segments.isEmpty || modelType == TranslationModelType.none) {
@@ -55,6 +60,12 @@ RULES:
           .map((s) => TranslationSegmentOutput(id: s.id, translation: s.source))
           .toList();
     }
+
+    final systemPrompt = buildSystemPrompt(
+      targetLanguage.displayName,
+      isCjk: targetLanguage.isCjk,
+      isRtl: targetLanguage.isRtl,
+    );
 
     final List<TranslationSegmentOutput> allResults = [];
     String previousContext = '';
@@ -75,6 +86,8 @@ RULES:
         modelType: modelType,
         apiKey: apiKey,
         previousContext: previousContext,
+        systemPrompt: systemPrompt,
+        targetLanguageName: targetLanguage.displayName,
       );
 
       allResults.addAll(batchOutputs);
@@ -101,6 +114,8 @@ RULES:
     required TranslationModelType modelType,
     required String apiKey,
     required String previousContext,
+    required String systemPrompt,
+    required String targetLanguageName,
     int retryCount = 0,
   }) async {
     try {
@@ -110,6 +125,7 @@ RULES:
           batchIds: batchIds,
           apiKey: apiKey,
           previousContext: previousContext,
+          systemPrompt: systemPrompt,
         );
       } else if (modelType == TranslationModelType.groqLlama3370b) {
         return await _translateBatchGroq(
@@ -117,6 +133,8 @@ RULES:
           batchIds: batchIds,
           apiKey: apiKey,
           previousContext: previousContext,
+          systemPrompt: systemPrompt,
+          targetLanguageName: targetLanguageName,
         );
       } else {
         return batch.map((s) => TranslationSegmentOutput(id: s.id, translation: s.source)).toList();
@@ -134,6 +152,8 @@ RULES:
           modelType: modelType,
           apiKey: apiKey,
           previousContext: previousContext,
+          systemPrompt: systemPrompt,
+          targetLanguageName: targetLanguageName,
           retryCount: retryCount + 1,
         );
 
@@ -143,6 +163,8 @@ RULES:
           modelType: modelType,
           apiKey: apiKey,
           previousContext: res1.isNotEmpty ? res1.last.translation : previousContext,
+          systemPrompt: systemPrompt,
+          targetLanguageName: targetLanguageName,
           retryCount: retryCount + 1,
         );
 
@@ -157,10 +179,11 @@ RULES:
     required List<int> batchIds,
     required String apiKey,
     required String previousContext,
+    required String systemPrompt,
   }) async {
     final payload = {
       'systemInstruction': {
-        'parts': [{'text': _systemPrompt}],
+        'parts': [{'text': systemPrompt}],
       },
       'contents': [
         {
@@ -237,10 +260,12 @@ RULES:
     required List<int> batchIds,
     required String apiKey,
     required String previousContext,
+    required String systemPrompt,
+    required String targetLanguageName,
   }) async {
     final userContent = jsonEncode({
       if (previousContext.isNotEmpty) 'dialogueContext': previousContext,
-      'instructions': 'Translate each segment into natural English following BBC/Netflix standards. Return strictly JSON with format {"translations": [{"id": 1, "translation": "..."}]}.',
+      'instructions': 'Translate each segment into natural $targetLanguageName following BBC/Netflix standards. Return strictly JSON with format {"translations": [{"id": 1, "translation": "..."}]}.',
       'segments': batch.map((s) => s.toJson()).toList(),
     });
 
@@ -267,7 +292,7 @@ RULES:
             data: {
               'model': model,
               'messages': [
-                {'role': 'system', 'content': _systemPrompt},
+                {'role': 'system', 'content': systemPrompt},
                 {'role': 'user', 'content': userContent}
               ],
               'response_format': {'type': 'json_object'},

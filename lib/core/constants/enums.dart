@@ -122,3 +122,204 @@ enum SourceLanguage {
       ];
 }
 
+enum TargetLanguage {
+  en('English', 'English', 'English', 'en', false, false),
+  es('Spanish (Español)', 'Spanish', 'Español', 'es', false, false),
+  zhHans('Chinese Simplified (简体中文)', 'Chinese Simplified', '简体中文', 'zh-Hans', false, true),
+  zhHant('Chinese Traditional (繁體中文)', 'Chinese Traditional', '繁體中文', 'zh-Hant', false, true),
+  ja('Japanese (日本語)', 'Japanese', '日本語', 'ja', false, true),
+  hi('Hindi (हिन्दी)', 'Hindi', 'हिन्दी', 'hi', false, false),
+  fr('French (Français)', 'French', 'Français', 'fr', false, false),
+  de('German (Deutsch)', 'German', 'Deutsch', 'de', false, false),
+  ar('Arabic (العربية)', 'Arabic', 'العربية', 'ar', true, false),
+  pt('Portuguese (Português)', 'Portuguese', 'Português', 'pt', false, false),
+  ru('Russian (Русский)', 'Russian', 'Русский', 'ru', false, false),
+  it('Italian (Italiano)', 'Italian', 'Italiano', 'it', false, false),
+  ko('Korean (한국어)', 'Korean', '한국어', 'ko', false, true),
+  bn('Bengali (বাংলা)', 'Bengali', 'বাংলা', 'bn', false, false),
+  id('Indonesian (Bahasa Indonesia)', 'Indonesian', 'Bahasa Indonesia', 'id', false, false),
+  tr('Turkish (Türkçe)', 'Turkish', 'Türkçe', 'tr', false, false),
+  vi('Vietnamese (Tiếng Việt)', 'Vietnamese', 'Tiếng Việt', 'vi', false, false),
+  th('Thai (ไทย)', 'Thai', 'ไทย', 'th', false, false),
+  pl('Polish (Polski)', 'Polish', 'Polski', 'pl', false, false),
+  nl('Dutch (Nederlands)', 'Dutch', 'Nederlands', 'nl', false, false),
+  uk('Ukrainian (Українська)', 'Ukrainian', 'Українська', 'uk', false, false),
+  sv('Swedish (Svenska)', 'Swedish', 'Svenska', 'sv', false, false),
+  cs('Czech (Čeština)', 'Czech', 'Čeština', 'cs', false, false),
+  el('Greek (Ελληνικά)', 'Greek', 'Ελληνικά', 'el', false, false),
+  ro('Romanian (Română)', 'Romanian', 'Română', 'ro', false, false),
+  hu('Hungarian (Magyar)', 'Hungarian', 'Magyar', 'hu', false, false),
+  da('Danish (Dansk)', 'Danish', 'Dansk', 'da', false, false),
+  fi('Finnish (Suomi)', 'Finnish', 'Suomi', 'fi', false, false),
+  ta('Tamil (தமிழ்)', 'Tamil', 'தமிழ்', 'ta', false, false),
+  te('Telugu (తెలుగు)', 'Telugu', 'తెలుగు', 'te', false, false),
+  mr('Marathi (मराठी)', 'Marathi', 'मराठी', 'mr', false, false),
+  ur('Urdu (اردو)', 'Urdu', 'اردو', 'ur', true, false),
+  ms('Malay (Bahasa Melayu)', 'Malay', 'Bahasa Melayu', 'ms', false, false),
+  fa('Persian (فارسی)', 'Persian', 'فارسی', 'fa', true, false),
+  he('Hebrew (עברית)', 'Hebrew', 'עברית', 'he', true, false),
+  no('Norwegian (Norsk)', 'Norwegian', 'Norsk', 'no', false, false),
+  tl('Tagalog (Filipino)', 'Tagalog', 'Filipino', 'tl', false, false),
+  sw('Swahili (Kiswahili)', 'Swahili', 'Kiswahili', 'sw', false, false),
+  bg('Bulgarian (Български)', 'Bulgarian', 'Български', 'bg', false, false),
+  sk('Slovak (Slovenčina)', 'Slovak', 'Slovenčina', 'sk', false, false),
+  hr('Croatian (Hrvatski)', 'Croatian', 'Hrvatski', 'hr', false, false),
+  sr('Serbian (Српски)', 'Serbian', 'Српски', 'sr', false, false),
+  lt('Lithuanian (Lietuvių)', 'Lithuanian', 'Lietuvių', 'lt', false, false),
+  sl('Slovenian (Slovenščina)', 'Slovenian', 'Slovenščina', 'sl', false, false),
+  et('Estonian (Eesti)', 'Estonian', 'Eesti', 'et', false, false),
+  lv('Latvian (Latviešu)', 'Latvian', 'Latviešu', 'lv', false, false),
+  gu('Gujarati (ગુજરાતી)', 'Gujarati', 'ગુજરાતી', 'gu', false, false),
+  kn('Kannada (ಕನ್ನಡ)', 'Kannada', 'ಕನ್ನಡ', 'kn', false, false),
+  ml('Malayalam (മലയാളം)', 'Malayalam', 'മലയാളം', 'ml', false, false),
+  pa('Punjabi (ਪੰਜਾਬੀ)', 'Punjabi', 'ਪੰਜਾਬੀ', 'pa', false, false),
+  my('Burmese (မြန်မာဘာသာ)', 'Burmese', 'မြန်မာဘာသာ', 'my', false, false),
+  km('Khmer (ភាសាខ្មែរ)', 'Khmer', 'ភាសាខ្មែរ', 'km', false, false),
+  am('Amharic (አማርኛ)', 'Amharic', 'አማርኛ', 'am', false, false),
+  af('Afrikaans', 'Afrikaans', 'Afrikaans', 'af', false, false),
+  ca('Catalan (Català)', 'Catalan', 'Català', 'ca', false, false),
+  cy('Welsh (Cymraeg)', 'Welsh', 'Cymraeg', 'cy', false, false),
+  isl('Icelandic (Íslenska)', 'Icelandic', 'Íslenska', 'is', false, false),
+  ka('Georgian (ქართული)', 'Georgian', 'ქართული', 'ka', false, false),
+  hy('Armenian (Հայերեն)', 'Armenian', 'Հայերեն', 'hy', false, false),
+  az('Azerbaijani (Azərbaycan)', 'Azerbaijani', 'Azərbaycan', 'az', false, false),
+  kk('Kazakh (Қазақша)', 'Kazakh', 'Қазақша', 'kk', false, false),
+  uz('Uzbek (Oʻzbekcha)', 'Uzbek', 'Oʻzbekcha', 'uz', false, false),
+  mn('Mongolian (Монгол)', 'Mongolian', 'Монгол', 'mn', false, false),
+  ne('Nepali (नेपाली)', 'Nepali', 'नेपाली', 'ne', false, false),
+  si('Sinhala (සිංහල)', 'Sinhala', 'සිංහල', 'si', false, false),
+  kmr('Kurdish (Kurdî)', 'Kurdish', 'Kurdî', 'kmr', false, false),
+  sq('Albanian (Shqip)', 'Albanian', 'Shqip', 'sq', false, false),
+  mk('Macedonian (Македонски)', 'Macedonian', 'Македонски', 'mk', false, false),
+  bs('Bosnian (Bosanski)', 'Bosnian', 'Bosanski', 'bs', false, false),
+  gl('Galician (Galego)', 'Galician', 'Galego', 'gl', false, false),
+  eu('Basque (Euskara)', 'Basque', 'Euskara', 'eu', false, false);
+
+  final String displayName;
+  final String englishName;
+  final String nativeName;
+  final String bcp47;
+  final bool isRtl;
+  final bool isCjk;
+
+  const TargetLanguage(
+    this.displayName,
+    this.englishName,
+    this.nativeName,
+    this.bcp47,
+    this.isRtl,
+    this.isCjk,
+  );
+
+  bool matches(String query) {
+    final clean = query.trim().toLowerCase();
+    if (clean.isEmpty) return true;
+    return englishName.toLowerCase().contains(clean) ||
+        nativeName.toLowerCase().contains(clean) ||
+        displayName.toLowerCase().contains(clean) ||
+        bcp47.toLowerCase().startsWith(clean);
+  }
+
+  static TargetLanguage fromCode(String? code) {
+    if (code == null || code.isEmpty) return TargetLanguage.en;
+    final lower = code.toLowerCase().trim();
+    return TargetLanguage.values.firstWhere(
+      (l) => l.bcp47.toLowerCase() == lower || l.name.toLowerCase() == lower,
+      orElse: () => TargetLanguage.en,
+    );
+  }
+
+  static List<TargetLanguage> get majorLanguages => [
+        en,
+        es,
+        zhHans,
+        zhHant,
+        ja,
+        hi,
+        fr,
+        de,
+        ar,
+        pt,
+        ru,
+        it,
+        ko,
+      ];
+}
+
+enum SpeechProfile {
+  actionDonghua(
+    displayName: 'Action / Donghua (Battle Mode)',
+    shortLabel: 'Battle Mode',
+    description: 'High sensitivity for loud combat BGM, sword fights, explosions & modulated/demonic enemy voices',
+    badge: 'RECOMMENDED FOR DONGHUA',
+    noiseDb: -20.0,
+    minSilenceDurationSeconds: 0.20,
+    bitrateKbps: 128,
+    highPassHz: 40,
+    lowPassHz: 12000,
+    enableDynaudnorm: true,
+    promptHint:
+        'Transcribe all dialogue, battle shouts, martial arts techniques, demonic and distorted villain voices, and spiritual beings accurately over loud background music.',
+  ),
+  standardBalanced(
+    displayName: 'Standard (Balanced)',
+    shortLabel: 'Standard',
+    description: 'Balanced profile for general movies, TV shows, anime, and YouTube videos',
+    badge: 'DEFAULT',
+    noiseDb: -30.0,
+    minSilenceDurationSeconds: 0.35,
+    bitrateKbps: 64,
+    highPassHz: 80,
+    lowPassHz: 8000,
+    enableDynaudnorm: false,
+    promptHint: 'Transcribe all spoken dialogue clearly and accurately.',
+  ),
+  clearDialogue(
+    displayName: 'Clear Speech / Podcast',
+    shortLabel: 'Podcast Mode',
+    description: 'Strict noise floor isolation for podcasts, interviews, audiobooks, and conferences',
+    badge: 'CONSERVATIVE',
+    noiseDb: -38.0,
+    minSilenceDurationSeconds: 0.50,
+    bitrateKbps: 48,
+    highPassHz: 100,
+    lowPassHz: 7500,
+    enableDynaudnorm: false,
+    promptHint: 'Transcribe clear speech and conversation.',
+  );
+
+  final String displayName;
+  final String shortLabel;
+  final String description;
+  final String badge;
+  final double noiseDb;
+  final double minSilenceDurationSeconds;
+  final int bitrateKbps;
+  final int highPassHz;
+  final int lowPassHz;
+  final bool enableDynaudnorm;
+  final String promptHint;
+
+  const SpeechProfile({
+    required this.displayName,
+    required this.shortLabel,
+    required this.description,
+    required this.badge,
+    required this.noiseDb,
+    required this.minSilenceDurationSeconds,
+    required this.bitrateKbps,
+    required this.highPassHz,
+    required this.lowPassHz,
+    required this.enableDynaudnorm,
+    required this.promptHint,
+  });
+
+  static SpeechProfile fromName(String? name) {
+    if (name == null || name.isEmpty) return SpeechProfile.standardBalanced;
+    return SpeechProfile.values.firstWhere(
+      (p) => p.name.toLowerCase() == name.toLowerCase(),
+      orElse: () => SpeechProfile.standardBalanced,
+    );
+  }
+}
+

@@ -62,6 +62,7 @@ abstract class BaseTranscriptionProvider {
     required String audioChunkPath,
     required String apiKey,
     String? sourceLanguage,
+    String? prompt,
   });
 }
 

@@ -91,6 +91,8 @@ class PipelineCoordinator {
     String? originalFilename,
     required int audioStreamIndex,
     required SourceLanguage sourceLang,
+    TargetLanguage targetLang = TargetLanguage.en,
+    SpeechProfile speechProfile = SpeechProfile.standardBalanced,
     required TranscriptionProviderType providerType,
     required TranslationModelType translationModel,
     required String tempWorkDir,
@@ -164,7 +166,7 @@ class PipelineCoordinator {
         durationSeconds: const Value(0.0),
         audioStreamIndex: Value(audioStreamIndex),
         sourceLanguage: sourceLang.bcp47,
-        targetLanguage: const Value('en'),
+        targetLanguage: Value(targetLang.bcp47),
         provider: providerType.name,
         translationModel: translationModel.name,
         status: JobStatus.pending.name,
@@ -178,6 +180,7 @@ class PipelineCoordinator {
         provider: Value(providerType.name),
         translationModel: Value(translationModel.name),
         sourceLanguage: Value(sourceLang.bcp47),
+        targetLanguage: Value(targetLang.bcp47),
         updatedAt: Value(BigInt.from(now)),
       ));
     }
@@ -245,7 +248,7 @@ class PipelineCoordinator {
         inputPath: videoPath,
         outputPath: targetCachedAudioPath,
         audioStreamIndex: audioStreamIndex,
-        config: const AudioExtractionConfig(),
+        config: AudioExtractionConfig.fromSpeechProfile(speechProfile),
       );
 
       fullAudioPath = targetCachedAudioPath;
@@ -321,7 +324,11 @@ class PipelineCoordinator {
         extractedAudioSizeBytes: extractedAudioBytes,
       );
 
-      final silenceStderr = await mediaEngine.detectSilence(audioPath: fullAudioPath);
+      final silenceStderr = await mediaEngine.detectSilence(
+        audioPath: fullAudioPath,
+        noiseDb: speechProfile.noiseDb,
+        minDurationSeconds: speechProfile.minSilenceDurationSeconds,
+      );
       final silenceIntervals = VadChunkCalculator.parseSilenceOutput(silenceStderr);
       final splitPoints = VadChunkCalculator.calculateSplitPoints(
         totalDurationSeconds: videoDurationSeconds > 0 ? videoDurationSeconds : 120.0,
@@ -422,6 +429,7 @@ class PipelineCoordinator {
               audioChunkPath: chunkPath,
               apiKey: apiKey,
               sourceLanguage: sourceLang.bcp47,
+              prompt: speechProfile.promptHint,
             );
             break;
           case TranscriptionProviderType.gemini25Transcribe:
@@ -429,6 +437,7 @@ class PipelineCoordinator {
               audioChunkPath: chunkPath,
               apiKey: apiKey,
               sourceLanguage: sourceLang.bcp47,
+              prompt: speechProfile.promptHint,
             );
             break;
           case TranscriptionProviderType.deepgramNova3:
@@ -436,6 +445,7 @@ class PipelineCoordinator {
               audioChunkPath: chunkPath,
               apiKey: apiKey,
               sourceLanguage: sourceLang.bcp47,
+              prompt: speechProfile.promptHint,
             );
             break;
         }
@@ -508,7 +518,23 @@ class PipelineCoordinator {
     // 5. TRANSLATING (Stage 2)
     final allJobSegments = await db.getSegmentsForJob(jobId);
 
-    if (translationModel != TranslationModelType.none && translationApiKey != null) {
+    final isSameLanguage = sourceLang.bcp47.isNotEmpty &&
+        sourceLang.bcp47.toLowerCase().split('-').first == targetLang.bcp47.toLowerCase().split('-').first;
+
+    if (isSameLanguage && translationModel != TranslationModelType.none) {
+      // Zero-Token Intelligent Bypass: Source language matches target language
+      yield PipelineProgress(
+        jobId: jobId,
+        status: JobStatus.translating,
+        currentChunk: totalChunks,
+        totalChunks: totalChunks,
+        progressPercent: 0.85,
+        statusMessage: 'Source matches target (${targetLang.displayName}) — zero-token bypass active!',
+        elapsedTime: stopwatch.elapsed,
+        estimatedRemainingTime: computeEta(0.85),
+        extractedAudioSizeBytes: extractedAudioBytes,
+      );
+    } else if (translationModel != TranslationModelType.none && translationApiKey != null) {
       await _updateJobStatus(jobId, JobStatus.translating);
       yield PipelineProgress(
         jobId: jobId,
@@ -516,7 +542,7 @@ class PipelineCoordinator {
         currentChunk: totalChunks,
         totalChunks: totalChunks,
         progressPercent: 0.85,
-        statusMessage: 'Translating subtitles to English with ${translationModel.displayName}...',
+        statusMessage: 'Translating subtitles to ${targetLang.displayName} with ${translationModel.displayName}...',
         elapsedTime: stopwatch.elapsed,
         estimatedRemainingTime: computeEta(0.85),
         extractedAudioSizeBytes: extractedAudioBytes,
@@ -534,6 +560,7 @@ class PipelineCoordinator {
             segments: inputs,
             modelType: translationModel,
             apiKey: translationApiKey,
+            targetLanguage: targetLang,
           );
 
           for (final out in outputs) {
@@ -607,6 +634,7 @@ class PipelineCoordinator {
       title: baseTitle,
       originalFilename: filename,
       sourceLanguage: sourceLang.bcp47,
+      targetLanguage: Value(targetLang.bcp47),
       durationSeconds: videoDurationSeconds,
       providerUsed: providerType.displayName,
       translationModel: Value(translationModel.displayName),

@@ -1,3 +1,5 @@
+import '../../core/constants/enums.dart';
+
 class AudioTrackInfo {
   final int streamIndex;
   final String codecName;
@@ -56,6 +58,7 @@ class AudioExtractionConfig {
   final int highPassHz;
   final int lowPassHz;
   final bool loudnorm;
+  final bool dynaudnorm;
   final int bitrateKbps;
 
   const AudioExtractionConfig({
@@ -64,8 +67,21 @@ class AudioExtractionConfig {
     this.highPassHz = 80,
     this.lowPassHz = 8000,
     this.loudnorm = false,
+    this.dynaudnorm = false,
     this.bitrateKbps = 48,
   });
+
+  factory AudioExtractionConfig.fromSpeechProfile(SpeechProfile profile) {
+    return AudioExtractionConfig(
+      sampleRate: 16000,
+      mono: true,
+      highPassHz: profile.highPassHz,
+      lowPassHz: profile.lowPassHz,
+      loudnorm: false,
+      dynaudnorm: profile.enableDynaudnorm,
+      bitrateKbps: profile.bitrateKbps,
+    );
+  }
 
   String toFfmpegFilterString() {
     final List<String> filters = [];
@@ -74,6 +90,9 @@ class AudioExtractionConfig {
     }
     if (lowPassHz > 0) {
       filters.add('lowpass=f=$lowPassHz');
+    }
+    if (dynaudnorm) {
+      filters.add('dynaudnorm=f=150:g=15');
     }
     if (loudnorm) {
       filters.add('loudnorm=I=-16:TP=-1.5:LRA=11');
