@@ -183,7 +183,10 @@ class ProcessMediaEngine implements MediaEngine {
           '-ss', currentStart.toStringAsFixed(3),
           '-t', duration.toStringAsFixed(3),
           '-i', inputPath,
-          '-c', 'copy',
+          '-c:a', 'libmp3lame',
+          '-b:a', '64k',
+          '-ar', '16000',
+          '-ac', '1',
           chunkFile,
         ],
       );

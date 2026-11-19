@@ -6,7 +6,15 @@ import 'transcription_provider.dart';
 class GroqWhisperProvider implements BaseTranscriptionProvider {
   final Dio _dio;
 
-  GroqWhisperProvider([Dio? dio]) : _dio = dio ?? Dio();
+  GroqWhisperProvider([Dio? dio])
+      : _dio = dio ??
+            Dio(
+              BaseOptions(
+                connectTimeout: const Duration(seconds: 30),
+                receiveTimeout: const Duration(seconds: 120),
+                sendTimeout: const Duration(seconds: 60),
+              ),
+            );
 
   @override
   String get name => 'Groq Whisper Large-v3';

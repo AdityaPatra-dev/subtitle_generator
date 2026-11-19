@@ -36,14 +36,34 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   SourceLanguage _selectedLanguage = SourceLanguage.auto;
   TargetLanguage _selectedTargetLanguage = TargetLanguage.en;
   SpeechProfile _selectedSpeechProfile = SpeechProfile.actionDonghua;
+  ProcessingStrategy _selectedProcessingStrategy = ProcessingStrategy.parallel;
   TranscriptionProviderType _selectedProvider = TranscriptionProviderType.gemini25Transcribe;
   TranslationModelType _selectedTranslationModel = TranslationModelType.gemini25Flash;
 
   bool _isProcessing = false;
+  bool _isCancelled = false;
   PipelineProgress? _currentProgress;
   DateTime? _processStartTime;
   Duration _liveElapsed = Duration.zero;
   Timer? _liveTicker;
+
+  void _cancelProcessing() {
+    _isCancelled = true;
+    _liveTicker?.cancel();
+    _liveTicker = null;
+    setState(() {
+      _isProcessing = false;
+      _currentProgress = null;
+      _incompleteJob = null;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Generation cancelled by user.'),
+        backgroundColor: Color(0xFF1E293B),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
 
   @override
   void dispose() {
@@ -59,19 +79,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   String _calculateLiveEta(double progressPercent) {
     if (progressPercent <= 0.05 || _liveElapsed.inSeconds < 2) {
-      return 'calculating...';
+      return 'Calculating...';
     }
     if (progressPercent >= 1.0) {
-      return 'finishing up...';
+      return 'Finishing...';
     }
     final estimatedTotalSec = _liveElapsed.inSeconds / progressPercent;
-    final remainingSec = (estimatedTotalSec - _liveElapsed.inSeconds).round().clamp(1, 3600);
+    final remainingSec = (estimatedTotalSec - _liveElapsed.inSeconds).round().clamp(1, 7200);
     if (remainingSec < 60) {
-      return '~${remainingSec}s remaining';
+      return '~${remainingSec}s';
     }
     final m = remainingSec ~/ 60;
     final s = remainingSec % 60;
-    return '~${m}m ${s}s remaining';
+    return '~${m}m ${s.toString().padLeft(2, '0')}s';
   }
 
   @override
@@ -259,8 +279,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       outDir = (await getApplicationDocumentsDirectory()).path;
     }
 
-    _processStartTime = DateTime.now();
-    _liveElapsed = Duration.zero;
+    final activeResumeId = resumeJobId ?? _incompleteJob?.id;
+    if (activeResumeId != null && _incompleteJob != null) {
+      _processStartTime = DateTime.fromMillisecondsSinceEpoch(_incompleteJob!.createdAt.toInt());
+      _liveElapsed = DateTime.now().difference(_processStartTime!);
+    } else {
+      _processStartTime = DateTime.now();
+      _liveElapsed = Duration.zero;
+    }
+
     _liveTicker?.cancel();
     _liveTicker = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted || !_isProcessing) {
@@ -274,9 +301,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
     setState(() {
       _isProcessing = true;
+      _isCancelled = false;
     });
-
-    final activeResumeId = resumeJobId ?? _incompleteJob?.id;
 
     try {
       final stream = coordinator.processVideo(
@@ -286,6 +312,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         sourceLang: _selectedLanguage,
         targetLang: _selectedTargetLanguage,
         speechProfile: _selectedSpeechProfile,
+        processingStrategy: _selectedProcessingStrategy,
         providerType: _selectedProvider,
         translationModel: _selectedTranslationModel,
         tempWorkDir: tempDir.path,
@@ -294,11 +321,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       );
 
       await for (final progress in stream) {
-        if (!mounted) break;
+        if (_isCancelled || !mounted) break;
         setState(() {
           _currentProgress = progress;
         });
       }
+
+      if (_isCancelled) return;
 
       _incompleteJob = null;
 
@@ -323,6 +352,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         );
       }
     } catch (e) {
+      if (_isCancelled) return;
       if (_selectedVideoName != null && _mediaInfo != null) {
         final db = ref.read(databaseProvider);
         _incompleteJob = await db.findIncompleteJobForFile(_selectedVideoName!, _mediaInfo!.fileSizeBytes);
@@ -405,6 +435,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final incompleteJobs = ref.watch(incompleteJobsStreamProvider).valueOrNull ?? [];
+    if (_incompleteJob != null && !incompleteJobs.any((j) => j.id == _incompleteJob!.id)) {
+      _incompleteJob = null;
+    }
     final keysState = ref.watch(apiKeysProvider);
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
@@ -665,6 +699,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             _buildSpeechProfileSelector(cardBg, borderCol, textPrimary, textSecondary, isDark),
             const SizedBox(height: 22),
 
+            // --- Chunking & Processing Strategy ---
+            _buildSectionTitle('Chunking & Processing Strategy', Icons.dashboard_customize_rounded, textPrimary),
+            const SizedBox(height: 8),
+            _buildProcessingStrategySelector(cardBg, borderCol, textPrimary, textSecondary, isDark),
+            const SizedBox(height: 22),
+
             // --- Translation Target ---
             _buildSectionTitle('Translation Mode (Stage 2)', Icons.g_translate_rounded, textPrimary),
             const SizedBox(height: 8),
@@ -895,6 +935,142 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
+  Widget _buildProcessingStrategySelector(
+    Color cardBg,
+    Color borderCol,
+    Color textPrimary,
+    Color textSecondary,
+    bool isDark,
+  ) {
+    return Column(
+      children: ProcessingStrategy.values.map((strategy) {
+        final isSupported = strategy.isSupportedBy(_selectedProvider);
+        final isSelected = strategy == _selectedProcessingStrategy;
+        final isParallel = strategy == ProcessingStrategy.parallel;
+        final isLarge = strategy == ProcessingStrategy.largeChunk;
+
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: InkWell(
+            onTap: isSupported
+                ? () => setState(() => _selectedProcessingStrategy = strategy)
+                : () {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'Large Chunking is disabled for Groq Whisper to prevent timestamp drift & respect the 25MB limit.',
+                        ),
+                        backgroundColor: Color(0xFF1E293B),
+                        behavior: SnackBarBehavior.floating,
+                      ),
+                    );
+                  },
+            borderRadius: BorderRadius.circular(14),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: isSelected
+                    ? (isDark ? const Color(0xFF1E2638) : const Color(0xFFF1F5FD))
+                    : (isSupported ? cardBg : (isDark ? const Color(0xFF111827) : const Color(0xFFF3F4F6))),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: isSelected
+                      ? (isParallel ? AppTheme.accentCyan : AppTheme.primaryViolet)
+                      : (isSupported ? borderCol : (isDark ? Colors.white10 : Colors.black12)),
+                  width: isSelected ? 1.8 : 1.0,
+                ),
+              ),
+              child: Opacity(
+                opacity: isSupported ? 1.0 : 0.45,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 38,
+                      height: 38,
+                      decoration: BoxDecoration(
+                        color: isSelected
+                            ? (isParallel
+                                ? AppTheme.accentCyan.withValues(alpha: 0.2)
+                                : AppTheme.primaryViolet.withValues(alpha: 0.2))
+                            : (isDark ? Colors.white10 : Colors.black.withValues(alpha: 0.05)),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Icon(
+                        isParallel
+                            ? Icons.bolt_rounded
+                            : (isLarge ? Icons.auto_stories_rounded : Icons.view_agenda_rounded),
+                        color: isSelected
+                            ? (isParallel ? AppTheme.accentCyan : AppTheme.primaryViolet)
+                            : textSecondary,
+                        size: 20,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  strategy.displayName,
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
+                                    color: textPrimary,
+                                  ),
+                                ),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: isParallel
+                                      ? Colors.cyanAccent.withValues(alpha: 0.15)
+                                      : (isSelected
+                                          ? AppTheme.primaryViolet.withValues(alpha: 0.15)
+                                          : Colors.grey.withValues(alpha: 0.15)),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text(
+                                  strategy.badge,
+                                  style: TextStyle(
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.bold,
+                                    color: isParallel
+                                        ? (isDark ? Colors.cyanAccent : Colors.teal)
+                                        : (isSelected ? AppTheme.primaryViolet : textSecondary),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            !isSupported
+                                ? 'Disabled for Groq: Whisper models drift on audio >4 mins and cap at 25MB.'
+                                : strategy.description,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: !isSupported ? Colors.amberAccent : textSecondary,
+                              height: 1.3,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      }).toList(),
+    );
+  }
+
   Widget _buildVideoPickerCard(Color cardBg, Color textPrimary, Color textSecondary, Color borderCol) {
     final hasVideo = _selectedVideoPath != null;
 
@@ -1070,7 +1246,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          onTap: () => setState(() => _selectedProvider = type),
+          onTap: () => setState(() {
+            _selectedProvider = type;
+            if (!_selectedProcessingStrategy.isSupportedBy(type)) {
+              _selectedProcessingStrategy = ProcessingStrategy.parallel;
+            }
+          }),
           borderRadius: BorderRadius.circular(16),
           child: Padding(
             padding: const EdgeInsets.all(14),
@@ -1354,66 +1535,109 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           // Pipeline Step Pills (Extract -> Chunk -> Transcribe -> Translate -> Format)
           _buildPipelineSteps(progress.status),
           const SizedBox(height: 14),
-          // Live Clock Stats: Elapsed (ticks every second uninterrupted!) • Dynamic ETA • Extracted Audio Size
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            decoration: BoxDecoration(
-              color: AppTheme.primaryViolet.withValues(alpha: 0.08),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: AppTheme.primaryViolet.withValues(alpha: 0.2)),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                // Live Elapsed Time (seconds tick continuously)
-                Row(
-                  children: [
-                    const Icon(Icons.timer_outlined, size: 15, color: AppTheme.accentCyan),
-                    const SizedBox(width: 5),
-                    Text(
-                      'Elapsed: $_formattedLiveElapsed',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: textSecondary,
-                        fontFeatures: const [FontFeature.tabularFigures()],
-                      ),
-                    ),
-                  ],
-                ),
-                // Live Dynamic ETA (recalculates every second based on elapsed time and progress)
-                Row(
-                  children: [
-                    const Icon(Icons.hourglass_bottom_rounded, size: 15, color: Colors.amberAccent),
-                    const SizedBox(width: 5),
-                    Text(
-                      'ETA: ${_calculateLiveEta(targetPercent)}',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.amberAccent,
-                        fontFeatures: [FontFeature.tabularFigures()],
-                      ),
-                    ),
-                  ],
-                ),
-                // Extracted Audio Size
-                if (progress.audioSizeFormatted.isNotEmpty)
-                  Row(
+          // Live Clock Stats: Clean 2-column timer row
+          Row(
+            children: [
+              // Elapsed Box (continuous, never resets)
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primaryViolet.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppTheme.primaryViolet.withValues(alpha: 0.25)),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const Icon(Icons.graphic_eq_rounded, size: 15, color: Colors.greenAccent),
-                      const SizedBox(width: 5),
+                      const Icon(Icons.timer_outlined, size: 16, color: AppTheme.accentCyan),
+                      const SizedBox(width: 6),
                       Text(
-                        progress.audioSizeFormatted,
-                        style: const TextStyle(
+                        'Elapsed: $_formattedLiveElapsed',
+                        style: TextStyle(
                           fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.greenAccent,
+                          fontWeight: FontWeight.w700,
+                          color: textPrimary,
+                          fontFeatures: const [FontFeature.tabularFigures()],
                         ),
                       ),
                     ],
                   ),
-              ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              // Dynamic ETA Box
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: Colors.amber.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.amber.withValues(alpha: 0.3)),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.hourglass_bottom_rounded, size: 16, color: Colors.amberAccent),
+                      const SizedBox(width: 6),
+                      Text(
+                        'ETA: ${_calculateLiveEta(targetPercent)}',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.amberAccent,
+                          fontFeatures: [FontFeature.tabularFigures()],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+
+          // Extracted Audio Metadata Chip (displayed cleanly below the timer row)
+          if (progress.audioSizeFormatted.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.greenAccent.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.greenAccent.withValues(alpha: 0.25)),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.graphic_eq_rounded, size: 15, color: Colors.greenAccent),
+                  const SizedBox(width: 6),
+                  Text(
+                    'Extracted Audio: ${progress.audioSizeFormatted} • 16 kHz Mono',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.greenAccent,
+                      letterSpacing: 0.2,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          const SizedBox(height: 12),
+          Center(
+            child: TextButton.icon(
+              onPressed: _cancelProcessing,
+              icon: const Icon(Icons.cancel_outlined, size: 16, color: Colors.redAccent),
+              label: const Text(
+                'Cancel / Stop Run',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.redAccent,
+                ),
+              ),
             ),
           ),
         ],

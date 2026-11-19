@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:dio/dio.dart';
 import '../../core/constants/enums.dart';
 
@@ -28,7 +30,15 @@ class TranslationSegmentOutput {
 class TranslationService {
   final Dio _dio;
 
-  TranslationService([Dio? dio]) : _dio = dio ?? Dio();
+  TranslationService([Dio? dio])
+      : _dio = dio ??
+            Dio(
+              BaseOptions(
+                connectTimeout: const Duration(seconds: 30),
+                receiveTimeout: const Duration(seconds: 120),
+                sendTimeout: const Duration(seconds: 60),
+              ),
+            );
 
   static String buildSystemPrompt(String targetLanguage, {bool isCjk = false, bool isRtl = false}) {
     final maxChars = isCjk ? '18-20 characters per line' : '40-42 characters per line';
@@ -118,60 +128,93 @@ RULES:
     required String targetLanguageName,
     int retryCount = 0,
   }) async {
-    try {
-      if (modelType == TranslationModelType.gemini25Flash) {
-        return await _translateBatchGemini(
-          batch: batch,
-          batchIds: batchIds,
-          apiKey: apiKey,
-          previousContext: previousContext,
-          systemPrompt: systemPrompt,
-        );
-      } else if (modelType == TranslationModelType.groqLlama3370b) {
-        return await _translateBatchGroq(
-          batch: batch,
-          batchIds: batchIds,
-          apiKey: apiKey,
-          previousContext: previousContext,
-          systemPrompt: systemPrompt,
-          targetLanguageName: targetLanguageName,
-        );
-      } else {
-        return batch.map((s) => TranslationSegmentOutput(id: s.id, translation: s.source)).toList();
+    int netAttempts = 0;
+    while (true) {
+      try {
+        netAttempts++;
+        if (modelType == TranslationModelType.gemini25Flash) {
+          return await _translateBatchGemini(
+            batch: batch,
+            batchIds: batchIds,
+            apiKey: apiKey,
+            previousContext: previousContext,
+            systemPrompt: systemPrompt,
+          );
+        } else if (modelType == TranslationModelType.groqLlama3370b) {
+          return await _translateBatchGroq(
+            batch: batch,
+            batchIds: batchIds,
+            apiKey: apiKey,
+            previousContext: previousContext,
+            systemPrompt: systemPrompt,
+            targetLanguageName: targetLanguageName,
+          );
+        } else {
+          return batch.map((s) => TranslationSegmentOutput(id: s.id, translation: s.source)).toList();
+        }
+      } catch (e) {
+        if (netAttempts < 3 && _isTransientError(e)) {
+          await Future.delayed(Duration(seconds: netAttempts * 2));
+          continue;
+        }
+
+        // If validation failed or segment count mismatched, split into two smaller batches
+        if (retryCount < 2 && batch.length > 10) {
+          final mid = batch.length ~/ 2;
+          final part1 = batch.sublist(0, mid);
+          final part2 = batch.sublist(mid);
+
+          final res1 = await _translateBatchWithRetry(
+            batch: part1,
+            batchIds: part1.map((s) => s.id).toList(),
+            modelType: modelType,
+            apiKey: apiKey,
+            previousContext: previousContext,
+            systemPrompt: systemPrompt,
+            targetLanguageName: targetLanguageName,
+            retryCount: retryCount + 1,
+          );
+
+          final res2 = await _translateBatchWithRetry(
+            batch: part2,
+            batchIds: part2.map((s) => s.id).toList(),
+            modelType: modelType,
+            apiKey: apiKey,
+            previousContext: res1.isNotEmpty ? res1.last.translation : previousContext,
+            systemPrompt: systemPrompt,
+            targetLanguageName: targetLanguageName,
+            retryCount: retryCount + 1,
+          );
+
+          return [...res1, ...res2];
+        }
+        rethrow;
       }
-    } catch (e) {
-      // If validation failed or segment count mismatched, split into two smaller batches
-      if (retryCount < 2 && batch.length > 10) {
-        final mid = batch.length ~/ 2;
-        final part1 = batch.sublist(0, mid);
-        final part2 = batch.sublist(mid);
-
-        final res1 = await _translateBatchWithRetry(
-          batch: part1,
-          batchIds: part1.map((s) => s.id).toList(),
-          modelType: modelType,
-          apiKey: apiKey,
-          previousContext: previousContext,
-          systemPrompt: systemPrompt,
-          targetLanguageName: targetLanguageName,
-          retryCount: retryCount + 1,
-        );
-
-        final res2 = await _translateBatchWithRetry(
-          batch: part2,
-          batchIds: part2.map((s) => s.id).toList(),
-          modelType: modelType,
-          apiKey: apiKey,
-          previousContext: res1.isNotEmpty ? res1.last.translation : previousContext,
-          systemPrompt: systemPrompt,
-          targetLanguageName: targetLanguageName,
-          retryCount: retryCount + 1,
-        );
-
-        return [...res1, ...res2];
-      }
-      rethrow;
     }
+  }
+
+  static bool _isTransientError(dynamic error) {
+    if (error is SocketException || error is HttpException || error is TimeoutException) {
+      return true;
+    }
+    if (error is DioException) {
+      if (error.type == DioExceptionType.connectionTimeout ||
+          error.type == DioExceptionType.sendTimeout ||
+          error.type == DioExceptionType.receiveTimeout ||
+          error.type == DioExceptionType.connectionError) {
+        return true;
+      }
+      final status = error.response?.statusCode;
+      if (status == 429 || status == 500 || status == 502 || status == 503 || status == 504) {
+        return true;
+      }
+    }
+    final s = error.toString().toLowerCase();
+    return s.contains('failed host lookup') ||
+        s.contains('connection error') ||
+        s.contains('socketexception') ||
+        s.contains('timed out') ||
+        s.contains('429');
   }
 
   Future<List<TranslationSegmentOutput>> _translateBatchGemini({
@@ -220,10 +263,11 @@ RULES:
     };
 
     final modelsToTry = [
-      'gemini-3-flash-preview',
-      'gemini-3.5-flash',
-      'gemini-flash-latest',
-      'gemini-2.5-flash',
+      'gemini-1.5-flash',
+      'gemini-1.5-flash-latest',
+      'gemini-2.0-flash',
+      'gemini-2.0-flash-exp',
+      'gemini-1.5-flash-8b',
     ];
 
     Response? response;

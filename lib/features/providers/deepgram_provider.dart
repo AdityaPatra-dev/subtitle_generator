@@ -5,7 +5,15 @@ import 'transcription_provider.dart';
 class DeepgramNovaProvider implements BaseTranscriptionProvider {
   final Dio _dio;
 
-  DeepgramNovaProvider([Dio? dio]) : _dio = dio ?? Dio();
+  DeepgramNovaProvider([Dio? dio])
+      : _dio = dio ??
+            Dio(
+              BaseOptions(
+                connectTimeout: const Duration(seconds: 30),
+                receiveTimeout: const Duration(seconds: 120),
+                sendTimeout: const Duration(seconds: 60),
+              ),
+            );
 
   @override
   String get name => 'Deepgram Nova-3 Multilingual';

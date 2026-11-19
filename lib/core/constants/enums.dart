@@ -41,7 +41,7 @@ enum JobStatus {
 
 enum TranscriptionProviderType {
   groqWhisperLargeV3('Groq Whisper Large-v3', 'whisper-large-v3'),
-  gemini25Transcribe('Google Gemini Flash', 'gemini-3-flash-preview'),
+  gemini25Transcribe('Google Gemini Flash', 'gemini-1.5-flash'),
   deepgramNova3('Deepgram Nova-3 Multilingual', 'nova-3');
 
   final String displayName;
@@ -50,7 +50,7 @@ enum TranscriptionProviderType {
 }
 
 enum TranslationModelType {
-  gemini25Flash('Google Gemini Flash', 'gemini-3-flash-preview'),
+  gemini25Flash('Google Gemini Flash', 'gemini-1.5-flash'),
   groqLlama3370b('Groq Llama 3.3 70B Versatile', 'llama-3.3-70b-versatile'),
   none('Original Language (No Translation)', 'none');
 
@@ -319,6 +319,56 @@ enum SpeechProfile {
     return SpeechProfile.values.firstWhere(
       (p) => p.name.toLowerCase() == name.toLowerCase(),
       orElse: () => SpeechProfile.standardBalanced,
+    );
+  }
+}
+
+enum ProcessingStrategy {
+  parallel(
+    displayName: 'Parallel Chunking',
+    shortLabel: 'Parallel',
+    description: 'Transcribes 2 chunks concurrently for 2x faster execution while staying safely within free-tier limits.',
+    badge: 'FASTEST (2X)',
+  ),
+  sequential(
+    displayName: 'Sequential Chunking',
+    shortLabel: 'Sequential',
+    description: 'Processes 1 chunk at a time. Maximum stability on weak cellular connections or strict rate limits.',
+    badge: 'MOST STABLE',
+  ),
+  largeChunk(
+    displayName: 'Large Chunking',
+    shortLabel: 'Large Chunk',
+    description: 'Transcribes 10–15 min continuous audio segments with zero split seams, maximizing dialogue flow & narrative context.',
+    badge: 'MAX CONTEXT',
+  );
+
+  final String displayName;
+  final String shortLabel;
+  final String description;
+  final String badge;
+
+  const ProcessingStrategy({
+    required this.displayName,
+    required this.shortLabel,
+    required this.description,
+    required this.badge,
+  });
+
+  /// Whether this strategy is supported by the given provider
+  bool isSupportedBy(TranscriptionProviderType provider) {
+    if (this == ProcessingStrategy.largeChunk &&
+        provider == TranscriptionProviderType.groqWhisperLargeV3) {
+      return false; // Groq Whisper drifts on audio >4m and has a 25MB ceiling
+    }
+    return true;
+  }
+
+  static ProcessingStrategy fromName(String? name) {
+    if (name == null || name.isEmpty) return ProcessingStrategy.parallel;
+    return ProcessingStrategy.values.firstWhere(
+      (s) => s.name.toLowerCase() == name.toLowerCase(),
+      orElse: () => ProcessingStrategy.parallel,
     );
   }
 }

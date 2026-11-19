@@ -6,7 +6,15 @@ import 'transcription_provider.dart';
 class GeminiProvider implements BaseTranscriptionProvider {
   final Dio _dio;
 
-  GeminiProvider([Dio? dio]) : _dio = dio ?? Dio();
+  GeminiProvider([Dio? dio])
+      : _dio = dio ??
+            Dio(
+              BaseOptions(
+                connectTimeout: const Duration(seconds: 30),
+                receiveTimeout: const Duration(seconds: 120),
+                sendTimeout: const Duration(seconds: 60),
+              ),
+            );
 
   @override
   String get name => 'Google Gemini Flash';
@@ -15,13 +23,14 @@ class GeminiProvider implements BaseTranscriptionProvider {
   String get modelId => _activeModelId;
 
   static const List<String> _candidateModels = [
-    'gemini-3-flash-preview',
-    'gemini-3.5-flash',
-    'gemini-flash-latest',
-    'gemini-2.5-flash',
+    'gemini-1.5-flash',
+    'gemini-1.5-flash-latest',
+    'gemini-2.0-flash',
+    'gemini-2.0-flash-exp',
+    'gemini-1.5-flash-8b',
   ];
 
-  String _activeModelId = 'gemini-3-flash-preview';
+  String _activeModelId = 'gemini-1.5-flash';
 
   @override
   Future<ProviderValidationResult> validateApiKey(String apiKey) async {
@@ -177,8 +186,8 @@ class GeminiProvider implements BaseTranscriptionProvider {
       } on DioException catch (e) {
         lastDioException = e;
         final status = e.response?.statusCode;
-        // If 404 (model not found / deprecated) or 503 (model overloaded), try next model
-        if (status == 404 || status == 503) {
+        // If 404 (model not found / deprecated) or 503 (model overloaded) or 429 (rate limited), try next model
+        if (status == 404 || status == 503 || status == 429) {
           continue;
         }
         throw TranscriptionException(

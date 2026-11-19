@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:io';
+import 'package:dio/dio.dart';
 import 'package:drift/drift.dart';
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
@@ -93,6 +95,7 @@ class PipelineCoordinator {
     required SourceLanguage sourceLang,
     TargetLanguage targetLang = TargetLanguage.en,
     SpeechProfile speechProfile = SpeechProfile.standardBalanced,
+    ProcessingStrategy processingStrategy = ProcessingStrategy.parallel,
     required TranscriptionProviderType providerType,
     required TranslationModelType translationModel,
     required String tempWorkDir,
@@ -134,6 +137,7 @@ class PipelineCoordinator {
     if (apiKey == null || apiKey.trim().isEmpty) {
       throw Exception('Missing API key for provider ${providerType.displayName}. Please add it in Settings.');
     }
+    final activeApiKey = apiKey;
 
     // Retrieve Translation API Key (if translating)
     String? translationApiKey;
@@ -324,6 +328,10 @@ class PipelineCoordinator {
         extractedAudioSizeBytes: extractedAudioBytes,
       );
 
+      final chunkConfig = VadChunkCalculator.getChunkConfig(
+        provider: providerType,
+        strategy: processingStrategy,
+      );
       final silenceStderr = await mediaEngine.detectSilence(
         audioPath: fullAudioPath,
         noiseDb: speechProfile.noiseDb,
@@ -333,6 +341,9 @@ class PipelineCoordinator {
       final splitPoints = VadChunkCalculator.calculateSplitPoints(
         totalDurationSeconds: videoDurationSeconds > 0 ? videoDurationSeconds : 120.0,
         silenceIntervals: silenceIntervals,
+        targetChunkDurationSeconds: chunkConfig.targetDurationSeconds,
+        minChunkDurationSeconds: chunkConfig.minDurationSeconds,
+        maxChunkDurationSeconds: chunkConfig.maxDurationSeconds,
       );
 
       chunkPaths = await mediaEngine.splitAudioAtTimestamps(
@@ -373,95 +384,151 @@ class PipelineCoordinator {
       }
     }
 
-    // 4. TRANSCRIBING Chunks Sequentially with Immediate Segment Persistence
+    // 4. TRANSCRIBING Chunks (Parallel or Sequential)
     await _updateJobStatus(jobId, JobStatus.transcribing);
 
     const double transcriptionStartProgress = 0.28;
     const double transcriptionEndProgress = 0.82;
     const double transcriptionSpan = transcriptionEndProgress - transcriptionStartProgress;
 
-    final existingSegments = await db.getSegmentsForJob(jobId);
-    int globalSegmentIndex = existingSegments.length;
-
+    final allChunkRecords = await db.getChunksForJob(jobId);
+    final pendingChunkIndices = <int>[];
     for (int i = 0; i < totalChunks; i++) {
       final chunkId = '${jobId}_chunk_$i';
-      final chunkPath = chunkPaths[i];
-      final currentChunkProgress = transcriptionStartProgress + (transcriptionSpan * (i / totalChunks));
+      final rec = allChunkRecords.firstWhere((c) => c.id == chunkId, orElse: () => allChunkRecords[i]);
+      if (rec.status != 'COMPLETED') {
+        pendingChunkIndices.add(i);
+      }
+    }
 
-      final allChunks = await db.getChunksForJob(jobId);
-      final chunkRecord = allChunks.firstWhere((c) => c.id == chunkId);
+    final chunkConfig = VadChunkCalculator.getChunkConfig(
+      provider: providerType,
+      strategy: processingStrategy,
+    );
+    final int concurrency = (processingStrategy == ProcessingStrategy.parallel && totalChunks > 1)
+        ? chunkConfig.maxConcurrency
+        : 1;
 
-      // Checkpoint: skip already completed chunk!
-      if (chunkRecord.status == 'COMPLETED') {
-        yield PipelineProgress(
+    final progressController = StreamController<PipelineProgress>();
+    int completedCount = totalChunks - pendingChunkIndices.length;
+    int nextPendingIdx = 0;
+
+    Future<void> worker(int workerId) async {
+      while (true) {
+        if (nextPendingIdx >= pendingChunkIndices.length) break;
+        final chunkIdx = pendingChunkIndices[nextPendingIdx++];
+        final chunkId = '${jobId}_chunk_$chunkIdx';
+        final chunkPath = chunkPaths[chunkIdx];
+        final chunkRecord = allChunkRecords.firstWhere((c) => c.id == chunkId);
+        final offset = chunkRecord.startSeconds;
+
+        final curProgress = transcriptionStartProgress + (transcriptionSpan * (completedCount / totalChunks));
+        final workerTag = concurrency > 1 ? ' [Worker $workerId]' : '';
+        progressController.add(PipelineProgress(
           jobId: jobId,
           status: JobStatus.transcribing,
-          currentChunk: i + 1,
+          currentChunk: chunkIdx + 1,
           totalChunks: totalChunks,
-          progressPercent: currentChunkProgress,
-          statusMessage: 'Chunk ${i + 1}/$totalChunks already completed (cached) — skipping...',
+          progressPercent: curProgress,
+          statusMessage: 'Transcribing chunk ${chunkIdx + 1} of $totalChunks$workerTag with ${providerType.displayName}...',
           elapsedTime: stopwatch.elapsed,
-          estimatedRemainingTime: computeEta(currentChunkProgress),
+          estimatedRemainingTime: computeEta(curProgress),
           extractedAudioSizeBytes: extractedAudioBytes,
-        );
-        continue;
-      }
+        ));
 
-      yield PipelineProgress(
-        jobId: jobId,
-        status: JobStatus.transcribing,
-        currentChunk: i + 1,
-        totalChunks: totalChunks,
-        progressPercent: currentChunkProgress,
-        statusMessage: 'Transcribing chunk ${i + 1} of $totalChunks with ${providerType.displayName}...',
-        elapsedTime: stopwatch.elapsed,
-        estimatedRemainingTime: computeEta(currentChunkProgress),
-        extractedAudioSizeBytes: extractedAudioBytes,
-      );
+        TranscriptionResult? result;
+        const maxChunkAttempts = 4;
+        for (int attempt = 1; attempt <= maxChunkAttempts; attempt++) {
+          try {
+            switch (providerType) {
+              case TranscriptionProviderType.groqWhisperLargeV3:
+                result = await groqProvider.transcribeChunk(
+                  audioChunkPath: chunkPath,
+                  apiKey: activeApiKey,
+                  sourceLanguage: sourceLang.bcp47,
+                  prompt: speechProfile.promptHint,
+                );
+                break;
+              case TranscriptionProviderType.gemini25Transcribe:
+                result = await geminiProvider.transcribeChunk(
+                  audioChunkPath: chunkPath,
+                  apiKey: activeApiKey,
+                  sourceLanguage: sourceLang.bcp47,
+                  prompt: speechProfile.promptHint,
+                );
+                break;
+              case TranscriptionProviderType.deepgramNova3:
+                result = await deepgramProvider.transcribeChunk(
+                  audioChunkPath: chunkPath,
+                  apiKey: activeApiKey,
+                  sourceLanguage: sourceLang.bcp47,
+                  prompt: speechProfile.promptHint,
+                );
+                break;
+            }
+            break;
+          } catch (err) {
+            final isTransient = _isTransientNetworkError(err);
+            if (!isTransient || attempt == maxChunkAttempts) {
+              final failTime = DateTime.now().millisecondsSinceEpoch;
+              await db.updateChunk(ChunksCompanion(
+                id: Value(chunkId),
+                status: const Value('FAILED'),
+                errorMessage: Value(err.toString()),
+              ));
+              await db.updateJob(JobsCompanion(
+                id: Value(jobId),
+                status: Value(JobStatus.failed.name),
+                failedStage: const Value('transcribing'),
+                currentChunkIndex: Value(chunkIdx),
+                errorMessage: Value('Chunk ${chunkIdx + 1}/$totalChunks failed: $err'),
+                interruptedAt: Value(BigInt.from(failTime)),
+                updatedAt: Value(BigInt.from(failTime)),
+              ));
+              rethrow;
+            }
 
-      final offset = chunkRecord.startSeconds;
-      TranscriptionResult result;
-
-      try {
-        switch (providerType) {
-          case TranscriptionProviderType.groqWhisperLargeV3:
-            result = await groqProvider.transcribeChunk(
-              audioChunkPath: chunkPath,
-              apiKey: apiKey,
-              sourceLanguage: sourceLang.bcp47,
-              prompt: speechProfile.promptHint,
-            );
-            break;
-          case TranscriptionProviderType.gemini25Transcribe:
-            result = await geminiProvider.transcribeChunk(
-              audioChunkPath: chunkPath,
-              apiKey: apiKey,
-              sourceLanguage: sourceLang.bcp47,
-              prompt: speechProfile.promptHint,
-            );
-            break;
-          case TranscriptionProviderType.deepgramNova3:
-            result = await deepgramProvider.transcribeChunk(
-              audioChunkPath: chunkPath,
-              apiKey: apiKey,
-              sourceLanguage: sourceLang.bcp47,
-              prompt: speechProfile.promptHint,
-            );
-            break;
+            final delaySec = attempt * 2;
+            progressController.add(PipelineProgress(
+              jobId: jobId,
+              status: JobStatus.transcribing,
+              currentChunk: chunkIdx + 1,
+              totalChunks: totalChunks,
+              progressPercent: curProgress,
+              statusMessage: 'Network issue on chunk ${chunkIdx + 1}/$totalChunks. Auto-reconnecting in ${delaySec}s (Attempt $attempt/$maxChunkAttempts)...',
+              elapsedTime: stopwatch.elapsed,
+              estimatedRemainingTime: computeEta(curProgress),
+              extractedAudioSizeBytes: extractedAudioBytes,
+            ));
+            await Future.delayed(Duration(seconds: delaySec));
+          }
         }
 
-        // Insert segments into SQLite IMMEDIATELY per chunk!
+        if (result == null) {
+          throw TranscriptionException(
+            provider: providerType.displayName,
+            message: 'Chunk ${chunkIdx + 1} produced no transcription output after $maxChunkAttempts attempts',
+          );
+        }
+
+        // Insert segments into SQLite with strict boundary clamping to eliminate drift
         final chunkSegments = <TranscriptSegmentsCompanion>[];
-        for (final seg in result.segments) {
-          final adjusted = seg.copyWithOffset(offset, globalSegmentIndex++);
+        for (int sIdx = 0; sIdx < result.segments.length; sIdx++) {
+          final seg = result.segments[sIdx];
+          final rawStart = seg.startSeconds;
+          final rawEnd = seg.endSeconds;
+          // Clamp start and end within chunk boundaries
+          final clampedStart = (rawStart < 0 ? 0.0 : rawStart) + offset;
+          final clampedEnd = (rawEnd > chunkRecord.durationSeconds + 0.5 ? chunkRecord.durationSeconds + 0.5 : rawEnd) + offset;
+
           chunkSegments.add(TranscriptSegmentsCompanion.insert(
             jobId: jobId,
             chunkId: chunkId,
-            segmentIndex: adjusted.index,
-            startSeconds: adjusted.startSeconds,
-            endSeconds: adjusted.endSeconds,
-            sourceText: adjusted.text,
-            speakerTag: Value(adjusted.speakerTag),
+            segmentIndex: (chunkIdx * 10000) + sIdx,
+            startSeconds: clampedStart,
+            endSeconds: clampedEnd > clampedStart ? clampedEnd : (clampedStart + 1.0),
+            sourceText: seg.text,
+            speakerTag: Value(seg.speakerTag),
           ));
         }
 
@@ -475,7 +542,6 @@ class PipelineCoordinator {
           completedAt: Value(BigInt.from(DateTime.now().millisecondsSinceEpoch)),
         ));
 
-        // Clean up individual chunk audio file immediately after transcribing
         try {
           final chunkFile = File(chunkPath);
           if (await chunkFile.exists()) {
@@ -483,37 +549,36 @@ class PipelineCoordinator {
           }
         } catch (_) {}
 
-        final afterChunkProgress = transcriptionStartProgress + (transcriptionSpan * ((i + 1) / totalChunks));
-        yield PipelineProgress(
+        completedCount++;
+        final afterChunkProgress = transcriptionStartProgress + (transcriptionSpan * (completedCount / totalChunks));
+        progressController.add(PipelineProgress(
           jobId: jobId,
           status: JobStatus.transcribing,
-          currentChunk: i + 1,
+          currentChunk: completedCount,
           totalChunks: totalChunks,
           progressPercent: afterChunkProgress,
-          statusMessage: 'Processed chunk ${i + 1} of $totalChunks (${result.segments.length} cues detected)',
+          statusMessage: 'Processed chunk ${chunkIdx + 1} of $totalChunks (${result.segments.length} cues detected)',
           elapsedTime: stopwatch.elapsed,
           estimatedRemainingTime: computeEta(afterChunkProgress),
           extractedAudioSizeBytes: extractedAudioBytes,
-        );
-      } catch (err) {
-        final failTime = DateTime.now().millisecondsSinceEpoch;
-        await db.updateChunk(ChunksCompanion(
-          id: Value(chunkId),
-          status: const Value('FAILED'),
-          errorMessage: Value(err.toString()),
         ));
-        await db.updateJob(JobsCompanion(
-          id: Value(jobId),
-          status: Value(JobStatus.failed.name),
-          failedStage: const Value('transcribing'),
-          currentChunkIndex: Value(i),
-          errorMessage: Value('Chunk ${i + 1}/$totalChunks failed: $err'),
-          interruptedAt: Value(BigInt.from(failTime)),
-          updatedAt: Value(BigInt.from(failTime)),
-        ));
-        rethrow;
       }
     }
+
+    final workerFutures = <Future<void>>[];
+    for (int w = 1; w <= concurrency; w++) {
+      workerFutures.add(worker(w));
+    }
+
+    final runFuture = Future.wait(workerFutures).then((_) {
+      progressController.close();
+    }).catchError((err, st) {
+      progressController.addError(err, st);
+      progressController.close();
+    });
+
+    yield* progressController.stream;
+    await runFuture;
 
     // 5. TRANSLATING (Stage 2)
     final allJobSegments = await db.getSegmentsForJob(jobId);
@@ -555,28 +620,52 @@ class PipelineCoordinator {
             .map((s) => TranslationSegmentInput(id: s.id, source: s.sourceText))
             .toList();
 
-        try {
-          final outputs = await translationService.translateSegments(
-            segments: inputs,
-            modelType: translationModel,
-            apiKey: translationApiKey,
-            targetLanguage: targetLang,
-          );
+        const maxTransAttempts = 4;
+        List<TranslationSegmentOutput>? outputs;
+        for (int attempt = 1; attempt <= maxTransAttempts; attempt++) {
+          try {
+            outputs = await translationService.translateSegments(
+              segments: inputs,
+              modelType: translationModel,
+              apiKey: translationApiKey,
+              targetLanguage: targetLang,
+            );
+            break;
+          } catch (err) {
+            final isTransient = _isTransientNetworkError(err);
+            if (!isTransient || attempt == maxTransAttempts) {
+              final failTime = DateTime.now().millisecondsSinceEpoch;
+              await db.updateJob(JobsCompanion(
+                id: Value(jobId),
+                status: Value(JobStatus.failed.name),
+                failedStage: const Value('translating'),
+                errorMessage: Value('Translation failed: $err'),
+                interruptedAt: Value(BigInt.from(failTime)),
+                updatedAt: Value(BigInt.from(failTime)),
+              ));
+              rethrow;
+            }
 
+            final delaySec = attempt * 2;
+            yield PipelineProgress(
+              jobId: jobId,
+              status: JobStatus.translating,
+              currentChunk: totalChunks,
+              totalChunks: totalChunks,
+              progressPercent: 0.85,
+              statusMessage: 'Translation network issue. Auto-retrying in ${delaySec}s (Attempt $attempt/$maxTransAttempts)...',
+              elapsedTime: stopwatch.elapsed,
+              estimatedRemainingTime: computeEta(0.85),
+              extractedAudioSizeBytes: extractedAudioBytes,
+            );
+            await Future.delayed(Duration(seconds: delaySec));
+          }
+        }
+
+        if (outputs != null) {
           for (final out in outputs) {
             await db.updateSegmentTranslation(out.id, out.translation);
           }
-        } catch (err) {
-          final failTime = DateTime.now().millisecondsSinceEpoch;
-          await db.updateJob(JobsCompanion(
-            id: Value(jobId),
-            status: Value(JobStatus.failed.name),
-            failedStage: const Value('translating'),
-            errorMessage: Value('Translation failed: $err'),
-            interruptedAt: Value(BigInt.from(failTime)),
-            updatedAt: Value(BigInt.from(failTime)),
-          ));
-          rethrow;
         }
       }
     }
@@ -676,5 +765,42 @@ class PipelineCoordinator {
       status: Value(status.name),
       updatedAt: Value(BigInt.from(DateTime.now().millisecondsSinceEpoch)),
     ));
+  }
+
+  bool _isTransientNetworkError(dynamic error) {
+    if (error is SocketException) return true;
+    if (error is HttpException) return true;
+    if (error is HandshakeException) return true;
+    if (error is TimeoutException) return true;
+
+    if (error is DioException) {
+      if (error.type == DioExceptionType.connectionTimeout ||
+          error.type == DioExceptionType.sendTimeout ||
+          error.type == DioExceptionType.receiveTimeout ||
+          error.type == DioExceptionType.connectionError ||
+          error.type == DioExceptionType.badCertificate) {
+        return true;
+      }
+      final status = error.response?.statusCode;
+      if (status == 429 || status == 500 || status == 502 || status == 503 || status == 504) {
+        return true;
+      }
+    }
+
+    final errStr = error.toString().toLowerCase();
+    if (errStr.contains('failed host lookup') ||
+        errStr.contains('connection error') ||
+        errStr.contains('connection refused') ||
+        errStr.contains('network error') ||
+        errStr.contains('timed out') ||
+        errStr.contains('timeout') ||
+        errStr.contains('socketexception') ||
+        errStr.contains('429') ||
+        errStr.contains('too many requests') ||
+        errStr.contains('service unavailable') ||
+        errStr.contains('resource has been exhausted')) {
+      return true;
+    }
+    return false;
   }
 }
