@@ -262,33 +262,96 @@ RULES:
       }
     };
 
-    final modelsToTry = [
+    // Query Google to discover the exact models available for this API key
+    List<String> discoveredModels = [];
+    try {
+      final listRes = await _dio.get(
+        'https://generativelanguage.googleapis.com/v1beta/models',
+        queryParameters: {'key': apiKey.trim()},
+        options: Options(
+          headers: {'x-goog-api-key': apiKey.trim()},
+          validateStatus: (status) => true,
+        ),
+      );
+      if (listRes.statusCode == 200 && listRes.data is Map) {
+        final modelsList = (listRes.data['models'] as List<dynamic>?) ?? [];
+        for (final m in modelsList) {
+          final methods = (m['supportedGenerationMethods'] as List<dynamic>?) ?? [];
+          if (methods.contains('generateContent')) {
+            final rawName = (m['name'] as String? ?? '').replaceFirst('models/', '');
+            final lower = rawName.toLowerCase();
+            if (rawName.isEmpty ||
+                lower.contains('tts') ||
+                lower.contains('embedding') ||
+                lower.contains('imagen') ||
+                lower.contains('robotics')) {
+              continue;
+            }
+            discoveredModels.add(rawName);
+          }
+        }
+      }
+    } catch (_) {}
+
+    final Set<String> combined = {};
+    if (discoveredModels.isNotEmpty) {
+      final flashModels = discoveredModels.where((m) {
+        final l = m.toLowerCase();
+        return l.contains('flash') && !l.contains('tts');
+      }).toList();
+      final otherModels = discoveredModels.where((m) {
+        final l = m.toLowerCase();
+        return !l.contains('flash') && !l.contains('tts');
+      }).toList();
+      combined.addAll(flashModels);
+      combined.addAll(otherModels);
+    }
+
+    final fallbackModels = [
       'gemini-1.5-flash',
       'gemini-1.5-flash-latest',
+      'gemini-1.5-flash-001',
+      'gemini-1.5-flash-002',
       'gemini-2.0-flash',
       'gemini-2.0-flash-exp',
       'gemini-1.5-flash-8b',
+      'gemini-1.5-pro',
     ];
+    combined.addAll(fallbackModels);
+    final modelsToTry = combined.toList();
 
     Response? response;
+    DioException? lastDioException;
     for (final model in modelsToTry) {
-      try {
-        response = await _dio.post(
-          'https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent',
-          queryParameters: {'key': apiKey.trim()},
-          data: payload,
-        );
-        if (response.statusCode == 200) break;
-      } on DioException catch (e) {
-        if (e.response?.statusCode == 404 || e.response?.statusCode == 503) {
-          continue;
+      for (final apiVersion in ['v1beta', 'v1']) {
+        try {
+          response = await _dio.post(
+            'https://generativelanguage.googleapis.com/$apiVersion/models/$model:generateContent',
+            queryParameters: {'key': apiKey.trim()},
+            data: payload,
+            options: Options(
+              headers: {
+                'Content-Type': 'application/json',
+                'x-goog-api-key': apiKey.trim(),
+              },
+            ),
+          );
+          if (response.statusCode == 200) break;
+        } on DioException catch (e) {
+          lastDioException = e;
+          final status = e.response?.statusCode;
+          if (status == 404 || status == 503 || status == 429 || status == 400) {
+            continue;
+          }
+          rethrow;
         }
-        rethrow;
       }
+      if (response != null && response.statusCode == 200) break;
     }
 
     if (response == null) {
-      throw Exception('All Gemini translation models failed or were unavailable');
+      final err = lastDioException?.response?.data ?? lastDioException?.message ?? 'Unknown';
+      throw Exception('All Gemini translation models failed. Last error: $err');
     }
 
     final data = response.data as Map<String, dynamic>;
