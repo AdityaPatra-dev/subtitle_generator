@@ -219,9 +219,17 @@ class PipelineCoordinator {
       fullAudioPath = validCachedAudio.path;
       extractedAudioBytes = await validCachedAudio.length();
 
+      if (videoDurationSeconds <= 0.0) {
+        try {
+          final probeInfo = await mediaEngine.probe(fullAudioPath);
+          videoDurationSeconds = probeInfo.durationSeconds;
+        } catch (_) {}
+      }
+
       await db.updateJob(JobsCompanion(
         id: Value(jobId),
         cachedAudioPath: Value(fullAudioPath),
+        durationSeconds: Value(videoDurationSeconds),
         updatedAt: Value(BigInt.from(DateTime.now().millisecondsSinceEpoch)),
       ));
 
@@ -513,13 +521,24 @@ class PipelineCoordinator {
 
         // Insert segments into SQLite with strict boundary clamping to eliminate drift
         final chunkSegments = <TranscriptSegmentsCompanion>[];
+        final chunkDur = chunkRecord.durationSeconds;
         for (int sIdx = 0; sIdx < result.segments.length; sIdx++) {
           final seg = result.segments[sIdx];
-          final rawStart = seg.startSeconds;
-          final rawEnd = seg.endSeconds;
-          // Clamp start and end within chunk boundaries
-          final clampedStart = (rawStart < 0 ? 0.0 : rawStart) + offset;
-          final clampedEnd = (rawEnd > chunkRecord.durationSeconds + 0.5 ? chunkRecord.durationSeconds + 0.5 : rawEnd) + offset;
+          double rawStart = seg.startSeconds;
+          double rawEnd = seg.endSeconds;
+
+          // Prevent provider from hallucinating timestamps beyond chunk bounds
+          if (rawStart < 0) rawStart = 0.0;
+          if (chunkDur > 0 && rawStart > chunkDur) {
+            rawStart = chunkDur;
+          }
+          if (rawEnd < rawStart) rawEnd = rawStart + 1.0;
+          if (chunkDur > 0 && rawEnd > chunkDur + 0.5) {
+            rawEnd = chunkDur + 0.5;
+          }
+
+          final clampedStart = rawStart + offset;
+          final clampedEnd = rawEnd + offset;
 
           chunkSegments.add(TranscriptSegmentsCompanion.insert(
             jobId: jobId,

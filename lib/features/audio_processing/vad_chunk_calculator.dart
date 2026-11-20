@@ -56,27 +56,28 @@ class VadChunkCalculator {
         }
 
       case TranscriptionProviderType.gemini25Transcribe:
-        // Gemini has 1M context with unified audio-token attention. 0 drift.
+        // Gemini has 1M context with unified audio-token attention.
+        // Chunks between 1.5 - 3 minutes maximize accuracy and eliminate drift.
         // Free tier rate limit: 15 RPM.
         if (strategy == ProcessingStrategy.parallel) {
           return const ChunkDurationConfig(
-            targetDurationSeconds: 240.0, // 4 mins
-            minDurationSeconds: 180.0,    // 3 mins
-            maxDurationSeconds: 300.0,    // 5 mins
+            targetDurationSeconds: 150.0, // 2.5 mins
+            minDurationSeconds: 90.0,     // 1.5 mins
+            maxDurationSeconds: 210.0,    // 3.5 mins
             maxConcurrency: 2,           // 2 workers consumes ~8 RPM max (<15 RPM)
           );
         } else if (strategy == ProcessingStrategy.largeChunk) {
           return const ChunkDurationConfig(
-            targetDurationSeconds: 720.0, // 12 mins
-            minDurationSeconds: 600.0,    // 10 mins
-            maxDurationSeconds: 900.0,    // 15 mins (single chunk if <= 15m!)
+            targetDurationSeconds: 300.0, // 5 mins
+            minDurationSeconds: 240.0,    // 4 mins
+            maxDurationSeconds: 360.0,    // 6 mins
             maxConcurrency: 1,
           );
         } else {
           return const ChunkDurationConfig(
-            targetDurationSeconds: 240.0,
-            minDurationSeconds: 180.0,
-            maxDurationSeconds: 300.0,
+            targetDurationSeconds: 120.0, // 2 mins
+            minDurationSeconds: 60.0,     // 1 min
+            maxDurationSeconds: 180.0,    // 3 mins
             maxConcurrency: 1,
           );
         }

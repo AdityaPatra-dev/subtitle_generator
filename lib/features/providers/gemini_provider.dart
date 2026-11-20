@@ -115,7 +115,7 @@ class GeminiProvider implements BaseTranscriptionProvider {
                   '2. NEVER combine long speeches, paragraphs, or multiple unrelated sentences into a single cue.\n'
                   '3. Break cues naturally at sentence boundaries, pauses, or breath marks.\n'
                   '4. Each cue text must be concise (max 40 characters per line, at most 2 lines).\n'
-                  '5. Provide accurate start and end timestamps in seconds (e.g. 12.35).\n'
+                  '5. Provide accurate start and end timestamps in seconds (e.g. 12.35). Timestamps MUST strictly reflect real-time playback from 0.0 to the end of this audio chunk without drifting or stretching.\n'
                   '6. Capture all dialogue faithfully with zero hallucination.',
             },
             {
