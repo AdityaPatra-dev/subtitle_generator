@@ -23,7 +23,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   final UpdateCheckerService _updateChecker = UpdateCheckerService();
   bool _isCheckingUpdate = false;
-  String _currentAppVersion = '1.0.8+9';
+  String _currentAppVersion = '1.0.9+10';
 
   bool _obscureGroq = true;
   bool _obscureGemini = true;

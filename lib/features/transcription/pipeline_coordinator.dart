@@ -340,26 +340,40 @@ class PipelineCoordinator {
         provider: providerType,
         strategy: processingStrategy,
       );
-      final silenceStderr = await mediaEngine.detectSilence(
-        audioPath: fullAudioPath,
-        noiseDb: speechProfile.noiseDb,
-        minDurationSeconds: speechProfile.minSilenceDurationSeconds,
-      );
-      final silenceIntervals = VadChunkCalculator.parseSilenceOutput(silenceStderr);
-      final splitPoints = VadChunkCalculator.calculateSplitPoints(
-        totalDurationSeconds: videoDurationSeconds > 0 ? videoDurationSeconds : 120.0,
-        silenceIntervals: silenceIntervals,
-        targetChunkDurationSeconds: chunkConfig.targetDurationSeconds,
-        minChunkDurationSeconds: chunkConfig.minDurationSeconds,
-        maxChunkDurationSeconds: chunkConfig.maxDurationSeconds,
-      );
 
-      chunkPaths = await mediaEngine.splitAudioAtTimestamps(
-        inputPath: fullAudioPath,
-        splitPointsSeconds: splitPoints,
-        outputDir: jobTempDir.path,
-        prefix: jobId,
-      );
+      final List<double> splitPoints;
+      if (videoDurationSeconds > 0 && videoDurationSeconds <= chunkConfig.maxDurationSeconds) {
+        // Fast path: audio fits within maximum chunk duration.
+        // Bypasses heavy FFmpeg silence scanning & splitting completely, saving ~25-35s on mobile.
+        splitPoints = [];
+      } else {
+        final silenceStderr = await mediaEngine.detectSilence(
+          audioPath: fullAudioPath,
+          noiseDb: speechProfile.noiseDb,
+          minDurationSeconds: speechProfile.minSilenceDurationSeconds,
+        );
+        final silenceIntervals = VadChunkCalculator.parseSilenceOutput(silenceStderr);
+        splitPoints = VadChunkCalculator.calculateSplitPoints(
+          totalDurationSeconds: videoDurationSeconds > 0 ? videoDurationSeconds : 120.0,
+          silenceIntervals: silenceIntervals,
+          targetChunkDurationSeconds: chunkConfig.targetDurationSeconds,
+          minChunkDurationSeconds: chunkConfig.minDurationSeconds,
+          maxChunkDurationSeconds: chunkConfig.maxDurationSeconds,
+        );
+      }
+
+      if (splitPoints.isEmpty) {
+        final singleChunkPath = p.join(jobTempDir.path, '${jobId}_chunk_0000.mp3');
+        await File(fullAudioPath).copy(singleChunkPath);
+        chunkPaths = [singleChunkPath];
+      } else {
+        chunkPaths = await mediaEngine.splitAudioAtTimestamps(
+          inputPath: fullAudioPath,
+          splitPointsSeconds: splitPoints,
+          outputDir: jobTempDir.path,
+          prefix: jobId,
+        );
+      }
 
       totalChunks = chunkPaths.length;
       await db.updateJob(JobsCompanion(

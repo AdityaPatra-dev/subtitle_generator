@@ -248,6 +248,7 @@ RULES:
       ],
       'generationConfig': {
         'responseMimeType': 'application/json',
+        'temperature': 0.1,
         'responseSchema': {
           'type': 'OBJECT',
           'properties': {
