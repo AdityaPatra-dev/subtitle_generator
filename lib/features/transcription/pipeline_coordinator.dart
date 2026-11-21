@@ -468,7 +468,7 @@ class PipelineCoordinator {
                   audioChunkPath: chunkPath,
                   apiKey: activeApiKey,
                   sourceLanguage: sourceLang.bcp47,
-                  prompt: speechProfile.promptHint,
+                  prompt: null, // Whisper is an acoustic model, not an LLM. Passing instruction promptHint corrupts speech decoding.
                 );
                 break;
               case TranscriptionProviderType.gemini25Transcribe:

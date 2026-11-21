@@ -64,6 +64,59 @@ class GroqWhisperProvider implements BaseTranscriptionProvider {
     return lower;
   }
 
+  static final RegExp _hallucinationRegex = RegExp(
+    r'(ご視聴ありがとうございました|チャンネル登録|お楽しみください|ご覧いただき|'
+    r'全片以.*拍摄|請按下小鈴鐺|请按下小铃铛|點讚|点赞|訂閱|订阅|謝謝觀看|谢谢观看|謝謝大家|谢谢大家|'
+    r'thank you for watching|thanks for watching|please subscribe|subtitles by|'
+    r'sound effects are not only)',
+    caseSensitive: false,
+  );
+
+  /// Whisper's prompt is NOT an LLM instruction prompt.
+  /// Passing instruction sentences (e.g. "Transcribe dialogue...") corrupts Whisper's
+  /// acoustic decoding and causes it to hallucinate and drop real speech.
+  static String? sanitizeWhisperPrompt(String? prompt) {
+    if (prompt == null || prompt.trim().isEmpty) return null;
+    final lower = prompt.toLowerCase();
+    if (lower.contains('transcribe') ||
+        lower.contains('accurately') ||
+        lower.contains('shouting') ||
+        lower.contains('spoken dialogue') ||
+        lower.contains('background music') ||
+        lower.contains('action phrases') ||
+        prompt.split(' ').length > 10) {
+      return null;
+    }
+    return prompt.trim();
+  }
+
+  static bool _isWhisperHallucination(Map<String, dynamic> seg) {
+    final text = seg['text']?.toString().trim() ?? '';
+    if (text.isEmpty) return true;
+
+    final noSpeechProb = double.tryParse(seg['no_speech_prob']?.toString() ?? '0.0') ?? 0.0;
+    final compressionRatio = double.tryParse(seg['compression_ratio']?.toString() ?? '0.0') ?? 0.0;
+    final start = double.tryParse(seg['start']?.toString() ?? '0.0') ?? 0.0;
+    final end = double.tryParse(seg['end']?.toString() ?? '0.0') ?? 0.0;
+    final duration = end - start;
+
+    // Repetitive decode loops
+    if (compressionRatio > 2.4) return true;
+
+    // High no-speech probability
+    if (noSpeechProb > 0.85) return true;
+
+    // Matches known YouTube/silence boilerplate
+    if (_hallucinationRegex.hasMatch(text)) {
+      if (noSpeechProb > 0.3 || duration > 8.0) return true;
+    }
+
+    // Long silence stretched into a single short phrase
+    if (duration > 20.0 && noSpeechProb > 0.6) return true;
+
+    return false;
+  }
+
   @override
   Future<TranscriptionResult> transcribeChunk({
     required String audioChunkPath,
@@ -77,6 +130,7 @@ class GroqWhisperProvider implements BaseTranscriptionProvider {
     }
 
     final normalizedLang = normalizeWhisperLanguage(sourceLanguage);
+    final cleanPrompt = sanitizeWhisperPrompt(prompt);
 
     int attempts = 0;
     const int maxAttempts = 4;
@@ -95,7 +149,7 @@ class GroqWhisperProvider implements BaseTranscriptionProvider {
           'response_format': 'verbose_json',
           'temperature': '0.0',
           if (normalizedLang.isNotEmpty) 'language': normalizedLang,
-          if (prompt != null && prompt.isNotEmpty) 'prompt': prompt,
+          if (cleanPrompt != null && cleanPrompt.isNotEmpty) 'prompt': cleanPrompt,
         });
 
         final response = await _dio.post(
@@ -115,15 +169,19 @@ class GroqWhisperProvider implements BaseTranscriptionProvider {
           final durationSec = double.tryParse(data['duration']?.toString() ?? '0.0') ?? 0.0;
 
           final List<TranscriptionSegment> segments = [];
+          int validIndex = 0;
           for (int i = 0; i < rawSegments.length; i++) {
             final seg = rawSegments[i] as Map<String, dynamic>;
+            if (_isWhisperHallucination(seg)) {
+              continue;
+            }
             final start = double.tryParse(seg['start']?.toString() ?? '0.0') ?? 0.0;
             final end = double.tryParse(seg['end']?.toString() ?? '0.0') ?? 0.0;
             final text = seg['text']?.toString().trim() ?? '';
 
             if (text.isNotEmpty) {
               segments.add(TranscriptionSegment(
-                index: i,
+                index: validIndex++,
                 startSeconds: start,
                 endSeconds: end,
                 text: text,
