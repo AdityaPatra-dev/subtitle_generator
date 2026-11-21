@@ -222,6 +222,7 @@ RULES:
 
   static List<String>? _cachedTranslationModels;
   static DateTime? _lastDiscoveryTime;
+  static String _activeTranslationModelId = '';
 
   Future<List<TranslationSegmentOutput>> _translateBatchGemini({
     required List<TranslationSegmentInput> batch,
@@ -249,6 +250,9 @@ RULES:
       'generationConfig': {
         'responseMimeType': 'application/json',
         'temperature': 0.1,
+        'thinkingConfig': {
+          'thinkingBudget': 0,
+        },
         'responseSchema': {
           'type': 'OBJECT',
           'properties': {
@@ -313,6 +317,9 @@ RULES:
     }
 
     final Set<String> combined = {};
+    if (_activeTranslationModelId.isNotEmpty) {
+      combined.add(_activeTranslationModelId);
+    }
     if (discoveredModels.isNotEmpty) {
       final flashModels = discoveredModels.where((m) {
         final l = m.toLowerCase();
@@ -355,7 +362,10 @@ RULES:
               },
             ),
           );
-          if (response.statusCode == 200) break;
+          if (response.statusCode == 200) {
+            _activeTranslationModelId = model;
+            break;
+          }
         } on DioException catch (e) {
           lastDioException = e;
           final status = e.response?.statusCode;

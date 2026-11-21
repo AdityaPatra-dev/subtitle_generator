@@ -427,7 +427,7 @@ class PipelineCoordinator {
       provider: providerType,
       strategy: processingStrategy,
     );
-    final int concurrency = (processingStrategy == ProcessingStrategy.parallel && totalChunks > 1)
+    final int concurrency = (totalChunks > 1 && chunkConfig.maxConcurrency > 1)
         ? chunkConfig.maxConcurrency
         : 1;
 

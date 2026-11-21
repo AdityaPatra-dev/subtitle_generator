@@ -132,6 +132,9 @@ class GeminiProvider implements BaseTranscriptionProvider {
       'generationConfig': {
         'responseMimeType': 'application/json',
         'temperature': 0.1,
+        'thinkingConfig': {
+          'thinkingBudget': 0,
+        },
         'responseSchema': {
           'type': 'ARRAY',
           'items': {

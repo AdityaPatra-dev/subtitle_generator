@@ -78,7 +78,7 @@ class VadChunkCalculator {
             targetDurationSeconds: 120.0, // 2 mins
             minDurationSeconds: 60.0,     // 1 min
             maxDurationSeconds: 180.0,    // 3 mins
-            maxConcurrency: 1,
+            maxConcurrency: 2,           // Gemini Free Tier is 15 RPM; 2 concurrent workers halves transcription time safely
           );
         }
 
