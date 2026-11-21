@@ -34,6 +34,8 @@ class GeminiProvider implements BaseTranscriptionProvider {
   ];
 
   String _activeModelId = 'gemini-1.5-flash';
+  static List<String>? _cachedDiscoveredModels;
+  static DateTime? _lastDiscoveryTime;
 
   String _formatDioError(DioException e, [String? model]) {
     final status = e.response?.statusCode;
@@ -144,52 +146,48 @@ class GeminiProvider implements BaseTranscriptionProvider {
       }
     };
 
-    // Query Google to discover the exact models available for this API key
+    // Query Google to discover the exact models available for this API key (cached for 30m)
     List<String> discoveredModels = [];
-    try {
-      final listRes = await _dio.get(
-        'https://generativelanguage.googleapis.com/v1beta/models',
-        queryParameters: {'key': apiKey.trim()},
-        options: Options(
-          headers: {'x-goog-api-key': apiKey.trim()},
-          validateStatus: (status) => true,
-        ),
-      );
+    final cacheValid = _cachedDiscoveredModels != null &&
+        _lastDiscoveryTime != null &&
+        DateTime.now().difference(_lastDiscoveryTime!) < const Duration(minutes: 30);
 
-      // Save debug log to sdcard for direct diagnosis
+    if (cacheValid) {
+      discoveredModels = List<String>.from(_cachedDiscoveredModels!);
+    } else {
       try {
-        File('/sdcard/gemini_models_debug.json').writeAsStringSync(
-          jsonEncode({
-            'status': listRes.statusCode,
-            'data': listRes.data,
-          }),
+        final listRes = await _dio.get(
+          'https://generativelanguage.googleapis.com/v1beta/models',
+          queryParameters: {'key': apiKey.trim()},
+          options: Options(
+            headers: {'x-goog-api-key': apiKey.trim()},
+            validateStatus: (status) => true,
+          ),
         );
-      } catch (_) {}
 
-      if (listRes.statusCode == 200 && listRes.data is Map) {
-        final modelsList = (listRes.data['models'] as List<dynamic>?) ?? [];
-        for (final m in modelsList) {
-          final methods = (m['supportedGenerationMethods'] as List<dynamic>?) ?? [];
-          if (methods.contains('generateContent')) {
-            final rawName = (m['name'] as String? ?? '').replaceFirst('models/', '');
-            // Filter out non-audio/text models: tts, embedding, imagen, aot, robotics
-            final lower = rawName.toLowerCase();
-            if (rawName.isEmpty ||
-                lower.contains('tts') ||
-                lower.contains('embedding') ||
-                lower.contains('imagen') ||
-                lower.contains('robotics')) {
-              continue;
+        if (listRes.statusCode == 200 && listRes.data is Map) {
+          final modelsList = (listRes.data['models'] as List<dynamic>?) ?? [];
+          for (final m in modelsList) {
+            final methods = (m['supportedGenerationMethods'] as List<dynamic>?) ?? [];
+            if (methods.contains('generateContent')) {
+              final rawName = (m['name'] as String? ?? '').replaceFirst('models/', '');
+              // Filter out non-audio/text models: tts, embedding, imagen, aot, robotics
+              final lower = rawName.toLowerCase();
+              if (rawName.isEmpty ||
+                  lower.contains('tts') ||
+                  lower.contains('embedding') ||
+                  lower.contains('imagen') ||
+                  lower.contains('robotics')) {
+                continue;
+              }
+              discoveredModels.add(rawName);
             }
-            discoveredModels.add(rawName);
+          }
+          if (discoveredModels.isNotEmpty) {
+            _cachedDiscoveredModels = List<String>.from(discoveredModels);
+            _lastDiscoveryTime = DateTime.now();
           }
         }
-      }
-    } catch (e) {
-      try {
-        File('/sdcard/gemini_models_debug.json').writeAsStringSync(
-          jsonEncode({'error': e.toString()}),
-        );
       } catch (_) {}
     }
 

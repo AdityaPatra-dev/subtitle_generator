@@ -217,6 +217,9 @@ RULES:
         s.contains('429');
   }
 
+  static List<String>? _cachedTranslationModels;
+  static DateTime? _lastDiscoveryTime;
+
   Future<List<TranslationSegmentOutput>> _translateBatchGemini({
     required List<TranslationSegmentInput> batch,
     required List<int> batchIds,
@@ -262,36 +265,48 @@ RULES:
       }
     };
 
-    // Query Google to discover the exact models available for this API key
+    // Query Google to discover the exact models available for this API key (cached for 30m)
     List<String> discoveredModels = [];
-    try {
-      final listRes = await _dio.get(
-        'https://generativelanguage.googleapis.com/v1beta/models',
-        queryParameters: {'key': apiKey.trim()},
-        options: Options(
-          headers: {'x-goog-api-key': apiKey.trim()},
-          validateStatus: (status) => true,
-        ),
-      );
-      if (listRes.statusCode == 200 && listRes.data is Map) {
-        final modelsList = (listRes.data['models'] as List<dynamic>?) ?? [];
-        for (final m in modelsList) {
-          final methods = (m['supportedGenerationMethods'] as List<dynamic>?) ?? [];
-          if (methods.contains('generateContent')) {
-            final rawName = (m['name'] as String? ?? '').replaceFirst('models/', '');
-            final lower = rawName.toLowerCase();
-            if (rawName.isEmpty ||
-                lower.contains('tts') ||
-                lower.contains('embedding') ||
-                lower.contains('imagen') ||
-                lower.contains('robotics')) {
-              continue;
+    final cacheValid = _cachedTranslationModels != null &&
+        _lastDiscoveryTime != null &&
+        DateTime.now().difference(_lastDiscoveryTime!) < const Duration(minutes: 30);
+
+    if (cacheValid) {
+      discoveredModels = List<String>.from(_cachedTranslationModels!);
+    } else {
+      try {
+        final listRes = await _dio.get(
+          'https://generativelanguage.googleapis.com/v1beta/models',
+          queryParameters: {'key': apiKey.trim()},
+          options: Options(
+            headers: {'x-goog-api-key': apiKey.trim()},
+            validateStatus: (status) => true,
+          ),
+        );
+        if (listRes.statusCode == 200 && listRes.data is Map) {
+          final modelsList = (listRes.data['models'] as List<dynamic>?) ?? [];
+          for (final m in modelsList) {
+            final methods = (m['supportedGenerationMethods'] as List<dynamic>?) ?? [];
+            if (methods.contains('generateContent')) {
+              final rawName = (m['name'] as String? ?? '').replaceFirst('models/', '');
+              final lower = rawName.toLowerCase();
+              if (rawName.isEmpty ||
+                  lower.contains('tts') ||
+                  lower.contains('embedding') ||
+                  lower.contains('imagen') ||
+                  lower.contains('robotics')) {
+                continue;
+              }
+              discoveredModels.add(rawName);
             }
-            discoveredModels.add(rawName);
+          }
+          if (discoveredModels.isNotEmpty) {
+            _cachedTranslationModels = List<String>.from(discoveredModels);
+            _lastDiscoveryTime = DateTime.now();
           }
         }
-      }
-    } catch (_) {}
+      } catch (_) {}
+    }
 
     final Set<String> combined = {};
     if (discoveredModels.isNotEmpty) {
