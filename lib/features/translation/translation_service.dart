@@ -320,14 +320,16 @@ RULES:
     if (_activeTranslationModelId.isNotEmpty) {
       combined.add(_activeTranslationModelId);
     }
+    combined.add('gemini-2.5-flash');
+
     if (discoveredModels.isNotEmpty) {
       final flashModels = discoveredModels.where((m) {
         final l = m.toLowerCase();
-        return l.contains('flash') && !l.contains('tts');
+        return l.contains('flash') && !l.contains('tts') && !l.contains('lite');
       }).toList();
       final otherModels = discoveredModels.where((m) {
         final l = m.toLowerCase();
-        return !l.contains('flash') && !l.contains('tts');
+        return !l.contains('flash') && !l.contains('tts') && !l.contains('lite');
       }).toList();
       combined.addAll(flashModels);
       combined.addAll(otherModels);

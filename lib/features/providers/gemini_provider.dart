@@ -195,21 +195,23 @@ class GeminiProvider implements BaseTranscriptionProvider {
       } catch (_) {}
     }
 
-    // Build the ordered model list: prioritize verified active model, then discovered models, then candidates
+    // Build the ordered model list: prioritize verified active model, then gemini-2.5-flash, then discovered models
     final Set<String> combined = {};
     if (_activeModelId.isNotEmpty) {
       combined.add(_activeModelId);
     }
+    // gemini-2.5-flash is Google's primary production audio multimodal model
+    combined.add('gemini-2.5-flash');
+
     if (discoveredModels.isNotEmpty) {
-      // Prioritize standard flash models first (gemini-1.5-flash, gemini-2.0-flash, gemini-2.5-flash),
-      // then any other general models, strictly excluding tts
+      // Prioritize full flash models, strictly excluding tts and lite (which lack audio input modality)
       final flashModels = discoveredModels.where((m) {
         final l = m.toLowerCase();
-        return l.contains('flash') && !l.contains('tts');
+        return l.contains('flash') && !l.contains('tts') && !l.contains('lite');
       }).toList();
       final otherModels = discoveredModels.where((m) {
         final l = m.toLowerCase();
-        return !l.contains('flash') && !l.contains('tts');
+        return !l.contains('flash') && !l.contains('tts') && !l.contains('lite');
       }).toList();
       combined.addAll(flashModels);
       combined.addAll(otherModels);
@@ -222,86 +224,75 @@ class GeminiProvider implements BaseTranscriptionProvider {
     String? lastErrorMessage;
 
     for (final model in modelsToTry) {
-      for (final apiVersion in ['v1beta', 'v1']) {
-        try {
-          final response = await _dio.post(
-            'https://generativelanguage.googleapis.com/$apiVersion/models/$model:generateContent',
-            queryParameters: {'key': apiKey.trim()},
-            data: payload,
-            options: Options(
-              headers: {
-                'Content-Type': 'application/json',
-                'x-goog-api-key': apiKey.trim(),
-              },
-            ),
-          );
+      // Audio generateContent is exclusively supported on v1beta
+      const apiVersion = 'v1beta';
+      try {
+        final response = await _dio.post(
+          'https://generativelanguage.googleapis.com/$apiVersion/models/$model:generateContent',
+          queryParameters: {'key': apiKey.trim()},
+          data: payload,
+          options: Options(
+            headers: {
+              'Content-Type': 'application/json',
+              'x-goog-api-key': apiKey.trim(),
+            },
+          ),
+        );
 
-          if (response.statusCode == 200) {
-            _activeModelId = model;
-            final data = response.data as Map<String, dynamic>;
-            final candidates = (data['candidates'] as List<dynamic>?) ?? [];
-            if (candidates.isEmpty) {
-              return const TranscriptionResult(segments: [], durationSeconds: 0.0);
-            }
-
-            final content = candidates.first['content'] as Map<String, dynamic>? ?? {};
-            final parts = (content['parts'] as List<dynamic>?) ?? [];
-            if (parts.isEmpty) {
-              return const TranscriptionResult(segments: [], durationSeconds: 0.0);
-            }
-
-            final rawJsonStr = parts.first['text']?.toString() ?? '[]';
-            final List<dynamic> parsedList = jsonDecode(rawJsonStr) as List<dynamic>;
-
-            final List<TranscriptionSegment> segments = [];
-            double maxEnd = 0.0;
-
-            for (int i = 0; i < parsedList.length; i++) {
-              final item = parsedList[i] as Map<String, dynamic>;
-              final start = double.tryParse(item['start']?.toString() ?? '0.0') ?? 0.0;
-              final end = double.tryParse(item['end']?.toString() ?? '0.0') ?? 0.0;
-              final text = item['text']?.toString().trim() ?? '';
-
-              if (end > maxEnd) maxEnd = end;
-
-              if (text.isNotEmpty) {
-                segments.add(TranscriptionSegment(
-                  index: i,
-                  startSeconds: start,
-                  endSeconds: end,
-                  text: text,
-                ));
-              }
-            }
-
-            return TranscriptionResult(
-              segments: segments,
-              durationSeconds: maxEnd,
-            );
-          } else {
-            lastErrorMessage = 'Gemini API error ($model): ${response.data}';
+        if (response.statusCode == 200) {
+          _activeModelId = model;
+          final data = response.data as Map<String, dynamic>;
+          final candidates = (data['candidates'] as List<dynamic>?) ?? [];
+          if (candidates.isEmpty) {
+            return const TranscriptionResult(segments: [], durationSeconds: 0.0);
           }
-        } on DioException catch (e) {
-          lastDioException = e;
-          final status = e.response?.statusCode;
-          final errStr = _formatDioError(e, model);
-          // If 404 (not found) or 503 (overloaded) or 429 (rate limited)
-          // or 400 (modality not supported / unsupported model), try next model/version
-          if (status == 404 ||
-              status == 503 ||
-              status == 429 ||
-              (status == 400 &&
-                  (errStr.toLowerCase().contains('modality') ||
-                      errStr.toLowerCase().contains('not enabled') ||
-                      errStr.toLowerCase().contains('not supported')))) {
-            continue;
+
+          final content = candidates.first['content'] as Map<String, dynamic>? ?? {};
+          final parts = (content['parts'] as List<dynamic>?) ?? [];
+          if (parts.isEmpty) {
+            return const TranscriptionResult(segments: [], durationSeconds: 0.0);
           }
-          throw TranscriptionException(
-            provider: name,
-            statusCode: e.response?.statusCode,
-            message: errStr,
+
+          final rawJsonStr = parts.first['text']?.toString() ?? '[]';
+          final List<dynamic> parsedList = jsonDecode(rawJsonStr) as List<dynamic>;
+
+          final List<TranscriptionSegment> segments = [];
+          double maxEnd = 0.0;
+
+          for (int i = 0; i < parsedList.length; i++) {
+            final item = parsedList[i] as Map<String, dynamic>;
+            final start = double.tryParse(item['start']?.toString() ?? '0.0') ?? 0.0;
+            final end = double.tryParse(item['end']?.toString() ?? '0.0') ?? 0.0;
+            final text = item['text']?.toString().trim() ?? '';
+
+            if (end > maxEnd) maxEnd = end;
+
+            if (text.isNotEmpty) {
+              segments.add(TranscriptionSegment(
+                index: i,
+                startSeconds: start,
+                endSeconds: end,
+                text: text,
+              ));
+            }
+          }
+
+          return TranscriptionResult(
+            segments: segments,
+            durationSeconds: maxEnd,
           );
+        } else {
+          lastErrorMessage = 'Gemini API error ($model): ${response.data}';
         }
+      } on DioException catch (e) {
+        lastDioException = e;
+        final status = e.response?.statusCode;
+        // If 404 (not found), 503 (overloaded), 429 (rate limited), 400 (invalid argument / unsupported modality), or 500
+        // continue trying the next candidate model
+        if (status == 404 || status == 503 || status == 429 || status == 400 || status == 500) {
+          continue;
+        }
+        rethrow;
       }
     }
 
