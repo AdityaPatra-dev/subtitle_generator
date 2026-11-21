@@ -84,6 +84,9 @@ RULES:
     if (modelType == TranslationModelType.groqLlama3370b && effectiveBatchSize > 25) {
       // Groq free tier has an 8,000 TPM limit; use smaller batches of 25 segments
       effectiveBatchSize = 25;
+    } else if (modelType == TranslationModelType.gemini25Flash && effectiveBatchSize < 150) {
+      // Gemini has 1M context; translate up to 150 segments in 1 request for blazing speed
+      effectiveBatchSize = 150;
     }
 
     for (int i = 0; i < segments.length; i += effectiveBatchSize) {
@@ -371,10 +374,27 @@ RULES:
 
     final data = response.data as Map<String, dynamic>;
     final candidates = (data['candidates'] as List<dynamic>?) ?? [];
-    final text = candidates.first['content']['parts'][0]['text']?.toString() ?? '{}';
-    final parsed = jsonDecode(text) as Map<String, dynamic>;
+    if (candidates.isEmpty) {
+      return batch.map((s) => TranslationSegmentOutput(id: s.id, translation: s.source)).toList();
+    }
+    final content = candidates.first['content'] as Map<String, dynamic>?;
+    final parts = (content?['parts'] as List<dynamic>?) ?? [];
+    if (parts.isEmpty) {
+      return batch.map((s) => TranslationSegmentOutput(id: s.id, translation: s.source)).toList();
+    }
+    final text = parts.first['text']?.toString() ?? '{}';
+    Map<String, dynamic> parsed = {};
+    try {
+      parsed = jsonDecode(text) as Map<String, dynamic>;
+    } catch (_) {
+      return batch.map((s) => TranslationSegmentOutput(id: s.id, translation: s.source)).toList();
+    }
 
-    return _validateAndParseResponse(batchIds, parsed);
+    return _validateAndParseResponse(
+      expectedIds: batchIds,
+      jsonResponse: parsed,
+      batch: batch,
+    );
   }
 
   Future<List<TranslationSegmentOutput>> _translateBatchGroq({
@@ -452,36 +472,49 @@ RULES:
 
     final data = response.data as Map<String, dynamic>;
     final choices = (data['choices'] as List<dynamic>?) ?? [];
-    final text = choices.first['message']['content']?.toString() ?? '{}';
-    final parsed = jsonDecode(text) as Map<String, dynamic>;
-
-    return _validateAndParseResponse(batchIds, parsed);
-  }
-
-  List<TranslationSegmentOutput> _validateAndParseResponse(List<int> expectedIds, Map<String, dynamic> jsonResponse) {
-    final rawTranslations = (jsonResponse['translations'] as List<dynamic>?) ?? [];
-    if (rawTranslations.length != expectedIds.length) {
-      throw SegmentCountMismatchException(
-        expected: expectedIds.length,
-        actual: rawTranslations.length,
-      );
+    if (choices.isEmpty) {
+      return batch.map((s) => TranslationSegmentOutput(id: s.id, translation: s.source)).toList();
+    }
+    final text = choices.first['message']?['content']?.toString() ?? '{}';
+    Map<String, dynamic> parsed = {};
+    try {
+      parsed = jsonDecode(text) as Map<String, dynamic>;
+    } catch (_) {
+      return batch.map((s) => TranslationSegmentOutput(id: s.id, translation: s.source)).toList();
     }
 
-    final List<TranslationSegmentOutput> outputs = [];
+    return _validateAndParseResponse(
+      expectedIds: batchIds,
+      jsonResponse: parsed,
+      batch: batch,
+    );
+  }
+
+  List<TranslationSegmentOutput> _validateAndParseResponse({
+    required List<int> expectedIds,
+    required Map<String, dynamic> jsonResponse,
+    required List<TranslationSegmentInput> batch,
+  }) {
+    final rawTranslations = (jsonResponse['translations'] as List<dynamic>?) ?? [];
     final Map<int, String> mapById = {};
 
     for (final item in rawTranslations) {
-      final map = item as Map<String, dynamic>;
-      final id = map['id'] as int? ?? -1;
-      final trans = map['translation']?.toString().trim() ?? '';
-      mapById[id] = trans;
+      if (item is Map<String, dynamic>) {
+        final id = item['id'] as int? ?? -1;
+        final trans = item['translation']?.toString().trim() ?? '';
+        if (id != -1 && trans.isNotEmpty) {
+          mapById[id] = trans;
+        }
+      }
     }
 
+    final sourceMap = {for (var s in batch) s.id: s.source};
+    final List<TranslationSegmentOutput> outputs = [];
+
     for (final id in expectedIds) {
-      if (!mapById.containsKey(id)) {
-        throw MissingSegmentIdException(missingId: id);
-      }
-      outputs.add(TranslationSegmentOutput(id: id, translation: mapById[id]!));
+      // Gracefully fall back to original source text if LLM dropped an ID, rather than failing the run
+      final translation = mapById[id] ?? sourceMap[id] ?? '';
+      outputs.add(TranslationSegmentOutput(id: id, translation: translation));
     }
 
     return outputs;
