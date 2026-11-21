@@ -191,8 +191,11 @@ class GeminiProvider implements BaseTranscriptionProvider {
       } catch (_) {}
     }
 
-    // Build the ordered model list: prioritize discovered models, then candidate models
+    // Build the ordered model list: prioritize verified active model, then discovered models, then candidates
     final Set<String> combined = {};
+    if (_activeModelId.isNotEmpty) {
+      combined.add(_activeModelId);
+    }
     if (discoveredModels.isNotEmpty) {
       // Prioritize standard flash models first (gemini-1.5-flash, gemini-2.0-flash, gemini-2.5-flash),
       // then any other general models, strictly excluding tts
@@ -207,7 +210,6 @@ class GeminiProvider implements BaseTranscriptionProvider {
       combined.addAll(flashModels);
       combined.addAll(otherModels);
     }
-    combined.add(_activeModelId);
     combined.addAll(_candidateModels);
 
     final modelsToTry = combined.toList();
