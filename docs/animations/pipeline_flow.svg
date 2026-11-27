@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 220" width="100%" height="220">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0B1120"/>
+      <stop offset="100%" stop-color="#111827"/>
+    </linearGradient>
+    <linearGradient id="accentGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#6366F1"/>
+      <stop offset="50%" stop-color="#06B6D4"/>
+      <stop offset="100%" stop-color="#10B981"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2.5" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <rect width="920" height="220" rx="16" fill="url(#bgGrad)" stroke="#1E293B" stroke-width="1.5"/>
+  <text x="460" y="34" fill="#E2E8F0" font-family="system-ui,-apple-system,sans-serif" font-size="14" font-weight="700" text-anchor="middle" letter-spacing="1.2">REAL-TIME EDGE-CLOUD SUBTITLE PIPELINE</text>
+
+  <!-- Connector Paths -->
+  <path d="M 162 110 L 218 110" stroke="#334155" stroke-width="3" stroke-linecap="round"/>
+  <path d="M 342 110 L 398 110" stroke="#334155" stroke-width="3" stroke-linecap="round"/>
+  <path d="M 522 110 L 578 110" stroke="#334155" stroke-width="3" stroke-linecap="round"/>
+  <path d="M 702 110 L 758 110" stroke="#334155" stroke-width="3" stroke-linecap="round"/>
+
+  <!-- Animated Data Pulses -->
+  <circle r="4" fill="#38BDF8" filter="url(#glow)">
+    <animateMotion dur="2.6s" repeatCount="indefinite" path="M 162 110 L 218 110"/>
+  </circle>
+  <circle r="4" fill="#818CF8" filter="url(#glow)">
+    <animateMotion dur="2.6s" begin="0.65s" repeatCount="indefinite" path="M 342 110 L 398 110"/>
+  </circle>
+  <circle r="4" fill="#22D3EE" filter="url(#glow)">
+    <animateMotion dur="2.6s" begin="1.3s" repeatCount="indefinite" path="M 522 110 L 578 110"/>
+  </circle>
+  <circle r="4" fill="#34D399" filter="url(#glow)">
+    <animateMotion dur="2.6s" begin="1.95s" repeatCount="indefinite" path="M 702 110 L 758 110"/>
+  </circle>
+
+  <!-- Stage 1 -->
+  <rect x="30" y="65" width="132" height="90" rx="12" fill="#1E293B" stroke="#38BDF8" stroke-width="1.5"/>
+  <text x="96" y="95" fill="#38BDF8" font-family="system-ui,sans-serif" font-size="12" font-weight="700" text-anchor="middle">1. VIDEO INPUT</text>
+  <text x="96" y="116" fill="#CBD5E1" font-family="system-ui,sans-serif" font-size="11" text-anchor="middle">MP4 / MKV / MOV</text>
+  <text x="96" y="135" fill="#64748B" font-family="system-ui,sans-serif" font-size="10" text-anchor="middle">Local Device Media</text>
+
+  <!-- Stage 2 -->
+  <rect x="218" y="65" width="124" height="90" rx="12" fill="#1E293B" stroke="#6366F1" stroke-width="1.5"/>
+  <text x="280" y="95" fill="#818CF8" font-family="system-ui,sans-serif" font-size="12" font-weight="700" text-anchor="middle">2. EDGE DSP</text>
+  <text x="280" y="116" fill="#CBD5E1" font-family="system-ui,sans-serif" font-size="11" text-anchor="middle">FFmpeg + VAD</text>
+  <text x="280" y="135" fill="#64748B" font-family="system-ui,sans-serif" font-size="10" text-anchor="middle">16kHz MP3 Slicing</text>
+
+  <!-- Stage 3 -->
+  <rect x="398" y="65" width="124" height="90" rx="12" fill="#1E293B" stroke="#06B6D4" stroke-width="1.5"/>
+  <text x="460" y="95" fill="#22D3EE" font-family="system-ui,sans-serif" font-size="12" font-weight="700" text-anchor="middle">3. PARALLEL ASR</text>
+  <text x="460" y="116" fill="#CBD5E1" font-family="system-ui,sans-serif" font-size="11" text-anchor="middle">Gemini 2.5 / Groq</text>
+  <text x="460" y="135" fill="#64748B" font-family="system-ui,sans-serif" font-size="10" text-anchor="middle">2x Workers + Retry</text>
+
+  <!-- Stage 4 -->
+  <rect x="578" y="65" width="124" height="90" rx="12" fill="#1E293B" stroke="#A855F7" stroke-width="1.5"/>
+  <text x="640" y="95" fill="#C084FC" font-family="system-ui,sans-serif" font-size="12" font-weight="700" text-anchor="middle">4. TRANSLATE</text>
+  <text x="640" y="116" fill="#CBD5E1" font-family="system-ui,sans-serif" font-size="11" text-anchor="middle">70+ Languages</text>
+  <text x="640" y="135" fill="#64748B" font-family="system-ui,sans-serif" font-size="10" text-anchor="middle">60-Cue Fast Batch</text>
+
+  <!-- Stage 5 -->
+  <rect x="758" y="65" width="132" height="90" rx="12" fill="#1E293B" stroke="#10B981" stroke-width="1.5"/>
+  <text x="824" y="95" fill="#34D399" font-family="system-ui,sans-serif" font-size="12" font-weight="700" text-anchor="middle">5. SRT &amp; VTT</text>
+  <text x="824" y="116" fill="#CBD5E1" font-family="system-ui,sans-serif" font-size="11" text-anchor="middle">BBC / Netflix Rules</text>
+  <text x="824" y="135" fill="#64748B" font-family="system-ui,sans-serif" font-size="10" text-anchor="middle">SQLite + Downloads</text>
+
+  <!-- Bottom Progress Bar -->
+  <rect x="30" y="182" width="860" height="6" rx="3" fill="#1E293B"/>
+  <rect x="30" y="182" width="220" height="6" rx="3" fill="url(#accentGrad)">
+    <animate attributeName="width" values="120;860;120" dur="5s" repeatCount="indefinite"/>
+  </rect>
+</svg>

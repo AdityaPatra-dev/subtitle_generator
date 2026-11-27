@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 860 210" width="100%" height="210">
+  <defs>
+    <linearGradient id="cardBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0B1120"/>
+      <stop offset="100%" stop-color="#111827"/>
+    </linearGradient>
+    <linearGradient id="fastBar" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#06B6D4"/>
+      <stop offset="100%" stop-color="#10B981"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="860" height="210" rx="16" fill="url(#cardBg)" stroke="#1E293B" stroke-width="1.5"/>
+  <text x="28" y="34" fill="#F8FAFC" font-family="system-ui,-apple-system,sans-serif" font-size="14" font-weight="700">GEMINI FREE TIER SPEEDUP (EMULATOR LIVE BENCHMARKS)</text>
+
+  <!-- Row 1: 18-min Before -->
+  <text x="28" y="72" fill="#94A3B8" font-family="system-ui,sans-serif" font-size="12">18-min Episode (Before — 180s stall)</text>
+  <rect x="280" y="58" width="460" height="20" rx="6" fill="#1E293B"/>
+  <rect x="280" y="58" width="460" height="20" rx="6" fill="#EF4444" opacity="0.85">
+    <animate attributeName="width" from="0" to="460" dur="1.2s" fill="freeze"/>
+  </rect>
+  <text x="752" y="73" fill="#FCA5A5" font-family="system-ui,sans-serif" font-size="12" font-weight="700">494.7s (8m 15s)</text>
+
+  <!-- Row 2: 18-min After -->
+  <text x="28" y="114" fill="#E2E8F0" font-family="system-ui,sans-serif" font-size="12" font-weight="600">18-min Episode (v1.0.10+ — 4.8x Faster)</text>
+  <rect x="280" y="100" width="460" height="20" rx="6" fill="#1E293B"/>
+  <rect x="280" y="100" width="95" height="20" rx="6" fill="url(#fastBar)">
+    <animate attributeName="width" from="0" to="95" dur="1.2s" fill="freeze"/>
+  </rect>
+  <text x="387" y="115" fill="#34D399" font-family="system-ui,sans-serif" font-size="12" font-weight="700">102.4s (1m 42s) — 259/259 cues</text>
+
+  <!-- Row 3: 2-min Clip -->
+  <text x="28" y="156" fill="#E2E8F0" font-family="system-ui,sans-serif" font-size="12" font-weight="600">2-min Action Clip (v1.0.10+)</text>
+  <rect x="280" y="142" width="460" height="20" rx="6" fill="#1E293B"/>
+  <rect x="280" y="142" width="32" height="20" rx="6" fill="url(#fastBar)">
+    <animate attributeName="width" from="0" to="32" dur="1.2s" fill="freeze"/>
+  </rect>
+  <text x="324" y="157" fill="#38BDF8" font-family="system-ui,sans-serif" font-size="12" font-weight="700">33.8s end-to-end</text>
+
+  <text x="28" y="190" fill="#64748B" font-family="system-ui,sans-serif" font-size="11">Measured on Android Emulator (Pixel 6 Pro API 34) with Google Gemini 2.5 Flash Free Tier + Parallel Chunking</text>
+</svg>
