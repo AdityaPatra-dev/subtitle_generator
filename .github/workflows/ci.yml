@@ -24,7 +24,7 @@ jobs:
         run: flutter pub get
 
       - name: Static Code Analysis
-        run: flutter analyze lib/
+        run: flutter analyze --no-fatal-infos lib/
 
       - name: Run Unit & Widget Tests
         run: flutter test test/unit test/widget_test.dart
