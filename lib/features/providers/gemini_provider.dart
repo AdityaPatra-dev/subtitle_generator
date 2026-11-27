@@ -139,12 +139,12 @@ class GeminiProvider implements BaseTranscriptionProvider {
     };
 
     // Fast prioritized model list verified accessible on Gemini Free Tier
-    final modelsToTry = [
+    final modelsToTry = {
       if (_activeModelId.isNotEmpty) _activeModelId,
       'gemini-2.5-flash',
       'gemini-3-flash-preview',
       'gemini-flash-lite-latest',
-    ].toSet().toList();
+    }.toList();
 
     DioException? lastDioException;
     String? lastErrorMessage;

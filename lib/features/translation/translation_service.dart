@@ -225,8 +225,6 @@ RULES:
         s.contains('429');
   }
 
-  static List<String>? _cachedTranslationModels;
-  static DateTime? _lastDiscoveryTime;
   static String _activeTranslationModelId = '';
 
   Future<List<TranslationSegmentOutput>> _translateBatchGemini({
@@ -276,12 +274,12 @@ RULES:
     };
 
     // Fast prioritized model list verified accessible on Gemini Free Tier
-    final modelsToTry = [
+    final modelsToTry = {
       if (_activeTranslationModelId.isNotEmpty) _activeTranslationModelId,
       'gemini-2.5-flash',
       'gemini-3-flash-preview',
       'gemini-flash-lite-latest',
-    ].toSet().toList();
+    }.toList();
 
     Response? response;
     DioException? lastDioException;
