@@ -117,6 +117,20 @@ Featuring **70+ output subtitle languages**, **smart speech and audio profiles**
 
 ---
 
+## 📚 Detailed Documentation (`docs/`)
+
+Deep-dive technical guides covering every subsystem in SubtitleGen AI:
+
+| Guide | What It Covers |
+| :--- | :--- |
+| **[01. Architecture & End-to-End Pipeline](docs/01_architecture_and_pipeline.md)** | `MainNavigationShell`, `PipelineCoordinator` 6-stage lifecycle, 2x parallel worker pool, resume checkpoints & ETA |
+| **[02. Edge Audio DSP & VAD Chunking](docs/02_audio_dsp_and_vad_chunking.md)** | `FFmpegKitMediaEngine` vs `ProcessMediaEngine`, `SpeechProfile` filters, `VadChunkCalculator` & 20 MB cap |
+| **[03. Cloud ASR & Translation](docs/03_cloud_asr_and_translation.md)** | `GeminiProvider` free-tier cascade & `503` failover, `GroqWhisperProvider`, `DeepgramProvider`, `TranslationService` |
+| **[04. Storage, BYOK Security & Subtitles](docs/04_storage_security_and_subtitles.md)** | Drift SQLite schema, `AudioCacheManager`, hardware-backed keystore, `SubtitleLineBreaker` & `SubtitleSerializer` |
+| **[05. UI Screens, Cue Editor, CLI & CI/CD](docs/05_ui_editor_and_cli.md)** | All 5 Flutter screens, ±100ms Cue Editor, `bin/cli.dart`, Docker & GitHub Actions workflows |
+
+---
+
 ## 🏗️ Architecture & Workflow
 
 ```mermaid
@@ -284,6 +298,11 @@ flutter test test/integration/live_full_episode_pipeline_test.dart
 subtitle_generator/
 ├── android/                 # Android Gradle and Native Manifest
 ├── docs/
+│   ├── 01_architecture_and_pipeline.md
+│   ├── 02_audio_dsp_and_vad_chunking.md
+│   ├── 03_cloud_asr_and_translation.md
+│   ├── 04_storage_security_and_subtitles.md
+│   ├── 05_ui_editor_and_cli.md
 │   ├── animations/          # Animated SVG architecture & benchmark diagrams
 │   └── images/              # Live emulator testing screenshots
 ├── linux/                   # Linux Desktop CMake & C++ Runner
