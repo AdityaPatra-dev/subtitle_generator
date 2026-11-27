@@ -342,8 +342,11 @@ class PipelineCoordinator {
       );
 
       final List<double> splitPoints;
-      if (videoDurationSeconds > 0 && videoDurationSeconds <= chunkConfig.maxDurationSeconds) {
-        // Fast path: audio fits within maximum chunk duration.
+      final shouldSkipSplitting = videoDurationSeconds > 0 &&
+          videoDurationSeconds <= (chunkConfig.minDurationSeconds * 1.5);
+
+      if (shouldSkipSplitting) {
+        // Fast path: audio fits within single chunk threshold.
         // Bypasses heavy FFmpeg silence scanning & splitting completely, saving ~25-35s on mobile.
         splitPoints = [];
       } else {
@@ -477,6 +480,7 @@ class PipelineCoordinator {
                   apiKey: activeApiKey,
                   sourceLanguage: sourceLang.bcp47,
                   prompt: speechProfile.promptHint,
+                  chunkDurationSeconds: chunkRecord.durationSeconds,
                 );
                 break;
               case TranscriptionProviderType.deepgramNova3:
@@ -583,6 +587,11 @@ class PipelineCoordinator {
         } catch (_) {}
 
         completedCount++;
+        await db.updateJob(JobsCompanion(
+          id: Value(jobId),
+          currentChunkIndex: Value(completedCount),
+          updatedAt: Value(BigInt.from(DateTime.now().millisecondsSinceEpoch)),
+        ));
         final afterChunkProgress = transcriptionStartProgress + (transcriptionSpan * (completedCount / totalChunks));
         progressController.add(PipelineProgress(
           jobId: jobId,
@@ -634,6 +643,8 @@ class PipelineCoordinator {
       );
     } else if (translationModel != TranslationModelType.none && translationApiKey != null) {
       await _updateJobStatus(jobId, JobStatus.translating);
+      // Cooldown to let Gemini rolling window clear after transcription calls
+      await Future.delayed(const Duration(seconds: 2));
       yield PipelineProgress(
         jobId: jobId,
         status: JobStatus.translating,
@@ -723,9 +734,12 @@ class PipelineCoordinator {
 
     for (final seg in finalSegments) {
       final rawText = seg.translatedText?.isNotEmpty == true ? seg.translatedText! : seg.sourceText;
+      final start = seg.startSeconds < 0 ? 0.0 : seg.startSeconds;
+      final end = seg.endSeconds > start ? seg.endSeconds : start + 2.0;
+
       final subCues = SubtitleLineBreaker.breakLongSegment(
-        startSeconds: seg.startSeconds,
-        endSeconds: seg.endSeconds,
+        startSeconds: start,
+        endSeconds: end,
         text: rawText,
         startingIndex: cueIndex,
       );

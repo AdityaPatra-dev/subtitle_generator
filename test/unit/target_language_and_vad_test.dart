@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:subtitle_generator/core/constants/enums.dart';
+import 'package:subtitle_generator/features/audio_processing/vad_chunk_calculator.dart';
 import 'package:subtitle_generator/features/media/media_engine.dart';
 import 'package:subtitle_generator/features/translation/translation_service.dart';
 
@@ -61,7 +62,7 @@ void main() {
       const profile = SpeechProfile.actionDonghua;
       expect(profile.noiseDb, -20.0);
       expect(profile.minSilenceDurationSeconds, 0.20);
-      expect(profile.bitrateKbps, 128);
+      expect(profile.bitrateKbps, 48);
       expect(profile.highPassHz, 40);
       expect(profile.lowPassHz, 12000);
       expect(profile.enableDynaudnorm, true);
@@ -73,17 +74,19 @@ void main() {
       const standard = SpeechProfile.standardBalanced;
       expect(standard.noiseDb, -30.0);
       expect(standard.minSilenceDurationSeconds, 0.35);
+      expect(standard.bitrateKbps, 36);
       expect(standard.enableDynaudnorm, false);
 
       const clear = SpeechProfile.clearDialogue;
       expect(clear.noiseDb, -38.0);
       expect(clear.minSilenceDurationSeconds, 0.50);
+      expect(clear.bitrateKbps, 32);
       expect(clear.enableDynaudnorm, false);
     });
 
     test('AudioExtractionConfig.fromSpeechProfile applies dynaudnorm and bitrates', () {
       final configBattle = AudioExtractionConfig.fromSpeechProfile(SpeechProfile.actionDonghua);
-      expect(configBattle.bitrateKbps, 128);
+      expect(configBattle.bitrateKbps, 48);
       expect(configBattle.dynaudnorm, true);
       expect(configBattle.highPassHz, 40);
       expect(configBattle.lowPassHz, 12000);
@@ -94,10 +97,24 @@ void main() {
       expect(filterStrBattle.contains('lowpass=f=12000'), true);
 
       final configStandard = AudioExtractionConfig.fromSpeechProfile(SpeechProfile.standardBalanced);
-      expect(configStandard.bitrateKbps, 64);
+      expect(configStandard.bitrateKbps, 36);
       expect(configStandard.dynaudnorm, false);
       final filterStrStandard = configStandard.toFfmpegFilterString();
       expect(filterStrStandard.contains('dynaudnorm'), false);
+    });
+    test('VAD splits 120s video at natural silence to eliminate long-scene drift', () {
+      final silences = [
+        const SilenceInterval(start: 54.0, end: 56.0), // midpoint 55.0
+      ];
+      final splits = VadChunkCalculator.calculateSplitPoints(
+        totalDurationSeconds: 120.0,
+        silenceIntervals: silences,
+        minChunkDurationSeconds: 45.0,
+        maxChunkDurationSeconds: 110.0,
+        targetChunkDurationSeconds: 90.0,
+      );
+      expect(splits.length, 1);
+      expect(splits[0], 55.0);
     });
   });
 

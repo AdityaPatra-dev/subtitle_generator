@@ -41,7 +41,7 @@ enum JobStatus {
 
 enum TranscriptionProviderType {
   groqWhisperLargeV3('Groq Whisper Large-v3', 'whisper-large-v3'),
-  gemini25Transcribe('Google Gemini Flash', 'gemini-1.5-flash'),
+  gemini25Transcribe('Google Gemini Flash', 'gemini-2.5-flash'),
   deepgramNova3('Deepgram Nova-3 Multilingual', 'nova-3');
 
   final String displayName;
@@ -50,7 +50,7 @@ enum TranscriptionProviderType {
 }
 
 enum TranslationModelType {
-  gemini25Flash('Google Gemini Flash', 'gemini-1.5-flash'),
+  gemini25Flash('Google Gemini Flash', 'gemini-2.5-flash'),
   groqLlama3370b('Groq Llama 3.3 70B Versatile', 'llama-3.3-70b-versatile'),
   none('Original Language (No Translation)', 'none');
 
@@ -254,7 +254,7 @@ enum SpeechProfile {
     badge: 'HIGH SENSITIVITY',
     noiseDb: -20.0,
     minSilenceDurationSeconds: 0.20,
-    bitrateKbps: 128,
+    bitrateKbps: 48,
     highPassHz: 40,
     lowPassHz: 12000,
     enableDynaudnorm: true,
@@ -268,7 +268,7 @@ enum SpeechProfile {
     badge: 'DEFAULT',
     noiseDb: -30.0,
     minSilenceDurationSeconds: 0.35,
-    bitrateKbps: 64,
+    bitrateKbps: 36,
     highPassHz: 80,
     lowPassHz: 8000,
     enableDynaudnorm: false,
@@ -281,7 +281,7 @@ enum SpeechProfile {
     badge: 'CONSERVATIVE',
     noiseDb: -38.0,
     minSilenceDurationSeconds: 0.50,
-    bitrateKbps: 48,
+    bitrateKbps: 32,
     highPassHz: 100,
     lowPassHz: 7500,
     enableDynaudnorm: false,

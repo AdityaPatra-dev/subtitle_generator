@@ -34,9 +34,9 @@ class TranslationService {
       : _dio = dio ??
             Dio(
               BaseOptions(
-                connectTimeout: const Duration(seconds: 30),
-                receiveTimeout: const Duration(seconds: 120),
-                sendTimeout: const Duration(seconds: 60),
+                connectTimeout: const Duration(seconds: 15),
+                receiveTimeout: const Duration(seconds: 45),
+                sendTimeout: const Duration(seconds: 30),
               ),
             );
 
@@ -52,8 +52,9 @@ RULES:
 2. Never invent, hallucinate, or alter timestamps. You only provide the "translation" text.
 3. Keep translations concise and readable within standard subtitle reading speeds (under $maxChars, at most 2 lines).
 4. Preserve proper character names, cultivation realm terms, martial arts techniques, and cultural terms naturally.
-5. If a segment contains non-speech indicators like [Music], [Laughter], or (Applause), translate or preserve the bracketed notation cleanly.
-6. Return strictly valid JSON adhering to the provided schema with NO conversational chatter or markdown fences.$rtlNote
+5. Contextual Accuracy: Accurately distinguish between battle commands, pleading/surrender (e.g. "放了我" / "放开我" -> "Let me go!" / "Spare me!"), and spoken dialogue within dramatic scene context.
+6. If a segment contains non-speech indicators like [Music], [Laughter], or (Applause), translate or preserve the bracketed notation cleanly.
+7. Return strictly valid JSON adhering to the provided schema with NO conversational chatter or markdown fences.$rtlNote
 ''';
   }
 
@@ -191,6 +192,10 @@ RULES:
 
           return [...res1, ...res2];
         }
+        if (retryCount >= 2) {
+          // Final safety fallback: preserve original speech text rather than aborting the entire job
+          return batch.map((s) => TranslationSegmentOutput(id: s.id, translation: s.source)).toList();
+        }
         rethrow;
       }
     }
@@ -250,9 +255,6 @@ RULES:
       'generationConfig': {
         'responseMimeType': 'application/json',
         'temperature': 0.1,
-        'thinkingConfig': {
-          'thinkingBudget': 0,
-        },
         'responseSchema': {
           'type': 'OBJECT',
           'properties': {
@@ -273,88 +275,23 @@ RULES:
       }
     };
 
-    // Query Google to discover the exact models available for this API key (cached for 30m)
-    List<String> discoveredModels = [];
-    final cacheValid = _cachedTranslationModels != null &&
-        _lastDiscoveryTime != null &&
-        DateTime.now().difference(_lastDiscoveryTime!) < const Duration(minutes: 30);
-
-    if (cacheValid) {
-      discoveredModels = List<String>.from(_cachedTranslationModels!);
-    } else {
-      try {
-        final listRes = await _dio.get(
-          'https://generativelanguage.googleapis.com/v1beta/models',
-          queryParameters: {'key': apiKey.trim()},
-          options: Options(
-            headers: {'x-goog-api-key': apiKey.trim()},
-            validateStatus: (status) => true,
-          ),
-        );
-        if (listRes.statusCode == 200 && listRes.data is Map) {
-          final modelsList = (listRes.data['models'] as List<dynamic>?) ?? [];
-          for (final m in modelsList) {
-            final methods = (m['supportedGenerationMethods'] as List<dynamic>?) ?? [];
-            if (methods.contains('generateContent')) {
-              final rawName = (m['name'] as String? ?? '').replaceFirst('models/', '');
-              final lower = rawName.toLowerCase();
-              if (rawName.isEmpty ||
-                  lower.contains('tts') ||
-                  lower.contains('embedding') ||
-                  lower.contains('imagen') ||
-                  lower.contains('robotics')) {
-                continue;
-              }
-              discoveredModels.add(rawName);
-            }
-          }
-          if (discoveredModels.isNotEmpty) {
-            _cachedTranslationModels = List<String>.from(discoveredModels);
-            _lastDiscoveryTime = DateTime.now();
-          }
-        }
-      } catch (_) {}
-    }
-
-    final Set<String> combined = {};
-    if (_activeTranslationModelId.isNotEmpty) {
-      combined.add(_activeTranslationModelId);
-    }
-    combined.add('gemini-2.5-flash');
-
-    if (discoveredModels.isNotEmpty) {
-      final flashModels = discoveredModels.where((m) {
-        final l = m.toLowerCase();
-        return l.contains('flash') && !l.contains('tts') && !l.contains('lite');
-      }).toList();
-      final otherModels = discoveredModels.where((m) {
-        final l = m.toLowerCase();
-        return !l.contains('flash') && !l.contains('tts') && !l.contains('lite');
-      }).toList();
-      combined.addAll(flashModels);
-      combined.addAll(otherModels);
-    }
-
-    final fallbackModels = [
-      'gemini-1.5-flash',
-      'gemini-1.5-flash-latest',
-      'gemini-1.5-flash-001',
-      'gemini-1.5-flash-002',
-      'gemini-2.0-flash',
-      'gemini-2.0-flash-exp',
-      'gemini-1.5-flash-8b',
-      'gemini-1.5-pro',
-    ];
-    combined.addAll(fallbackModels);
-    final modelsToTry = combined.toList();
+    // Fast prioritized model list verified accessible on Gemini Free Tier
+    final modelsToTry = [
+      if (_activeTranslationModelId.isNotEmpty) _activeTranslationModelId,
+      'gemini-2.5-flash',
+      'gemini-3-flash-preview',
+      'gemini-flash-lite-latest',
+    ].toSet().toList();
 
     Response? response;
     DioException? lastDioException;
     for (final model in modelsToTry) {
-      for (final apiVersion in ['v1beta', 'v1']) {
+      int modelAttempts = 0;
+      while (modelAttempts < 2) {
+        modelAttempts++;
         try {
           response = await _dio.post(
-            'https://generativelanguage.googleapis.com/$apiVersion/models/$model:generateContent',
+            'https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent',
             queryParameters: {'key': apiKey.trim()},
             data: payload,
             options: Options(
@@ -371,8 +308,16 @@ RULES:
         } on DioException catch (e) {
           lastDioException = e;
           final status = e.response?.statusCode;
-          if (status == 404 || status == 503 || status == 429 || status == 400) {
-            continue;
+          if (status == 429) {
+            // Free-tier rate limit (15 RPM). Wait 10s once for quota window to reset, then retry.
+            if (modelAttempts < 2) {
+              await Future.delayed(const Duration(seconds: 10));
+              continue;
+            }
+          }
+          if (status == 404 || status == 503 || status == 400 || status == 429) {
+            // Switch immediately on 503 demand spike / 404 / 400, or after 429 cooldown
+            break;
           }
           rethrow;
         }

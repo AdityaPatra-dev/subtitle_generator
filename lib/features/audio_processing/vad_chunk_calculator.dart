@@ -57,14 +57,14 @@ class VadChunkCalculator {
 
       case TranscriptionProviderType.gemini25Transcribe:
         // Gemini has 1M context with unified audio-token attention.
-        // Chunks between 1.5 - 3 minutes maximize accuracy and eliminate drift.
+        // Chunks between 60s - 150s maximize accuracy, eliminate API overhead & rate-limiting, and run 2x in parallel.
         // Free tier rate limit: 15 RPM.
         if (strategy == ProcessingStrategy.parallel) {
           return const ChunkDurationConfig(
-            targetDurationSeconds: 150.0, // 2.5 mins
-            minDurationSeconds: 90.0,     // 1.5 mins
-            maxDurationSeconds: 210.0,    // 3.5 mins
-            maxConcurrency: 2,           // 2 workers consumes ~8 RPM max (<15 RPM)
+            targetDurationSeconds: 120.0, // 2 mins target
+            minDurationSeconds: 60.0,     // 1 min min
+            maxDurationSeconds: 150.0,    // 2.5 mins max
+            maxConcurrency: 2,           // 2 workers consumes ~2-4 RPM max (far below 15 RPM)
           );
         } else if (strategy == ProcessingStrategy.largeChunk) {
           return const ChunkDurationConfig(
@@ -75,9 +75,9 @@ class VadChunkCalculator {
           );
         } else {
           return const ChunkDurationConfig(
-            targetDurationSeconds: 120.0, // 2 mins
-            minDurationSeconds: 60.0,     // 1 min
-            maxDurationSeconds: 180.0,    // 3 mins
+            targetDurationSeconds: 120.0,
+            minDurationSeconds: 60.0,
+            maxDurationSeconds: 150.0,
             maxConcurrency: 2,           // Gemini Free Tier is 15 RPM; 2 concurrent workers halves transcription time safely
           );
         }
@@ -141,8 +141,9 @@ class VadChunkCalculator {
     double minChunkDurationSeconds = 180.0,    // 3 minutes
     double maxChunkDurationSeconds = 300.0,   // 5 minutes
   }) {
-    // If total audio is shorter than maxChunkDuration, no splits needed
-    if (totalDurationSeconds <= maxChunkDurationSeconds) {
+    // If total audio is shorter than minChunkDuration * 1.5, process as a single fast chunk
+    final double minSplitThreshold = minChunkDurationSeconds * 1.5;
+    if (totalDurationSeconds <= minSplitThreshold) {
       return [];
     }
 
@@ -153,20 +154,31 @@ class VadChunkCalculator {
       final searchMin = currentWindowStart + minChunkDurationSeconds;
       final searchMax = currentWindowStart + maxChunkDurationSeconds;
 
-      // Find all silent intervals whose midpoint falls within the search window
+      // Find all silent intervals whose midpoint falls within the search window,
+      // and which leave at least minChunkDurationSeconds for the remaining audio.
       final candidates = silenceIntervals
-          .where((s) => s.midpoint >= searchMin && s.midpoint <= searchMax)
+          .where((s) =>
+              s.midpoint >= searchMin &&
+              s.midpoint <= searchMax &&
+              (totalDurationSeconds - s.midpoint) >= minChunkDurationSeconds)
           .toList();
 
       if (candidates.isNotEmpty) {
-        // Pick the longest silence duration (most natural pause)
+        // Pick the longest natural silence duration
         candidates.sort((a, b) => b.duration.compareTo(a.duration));
         final chosenSplit = candidates.first.midpoint;
         splitPoints.add(chosenSplit);
         currentWindowStart = chosenSplit;
       } else {
-        // Fallback: No silence pause found in window -> Hard cut at target boundary
-        final hardSplit = currentWindowStart + targetChunkDurationSeconds;
+        // Fallback: No valid silence pause found in window -> Cut at target boundary or balanced midpoint
+        final double remaining = totalDurationSeconds - currentWindowStart;
+        final double hardSplit;
+        if (remaining <= maxChunkDurationSeconds * 1.5) {
+          // If remaining duration fits roughly within 2 chunks, divide remainder equally
+          hardSplit = currentWindowStart + (remaining / 2.0);
+        } else {
+          hardSplit = currentWindowStart + targetChunkDurationSeconds;
+        }
         splitPoints.add(hardSplit);
         currentWindowStart = hardSplit;
       }

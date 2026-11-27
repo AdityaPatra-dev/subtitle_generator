@@ -63,6 +63,7 @@ abstract class BaseTranscriptionProvider {
     required String apiKey,
     String? sourceLanguage,
     String? prompt,
+    double? chunkDurationSeconds,
   });
 }
 

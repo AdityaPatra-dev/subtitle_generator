@@ -62,6 +62,24 @@ void main() {
       expect(splits[0], 720.0); // exact fallback
     });
 
+    test('disqualifies candidate silences that leave less than minChunkDuration remainder', () {
+      final silences = [
+        const SilenceInterval(start: 109.0, end: 109.6), // midpoint 109.3 leaves only 10.7s remainder on 120s clip
+      ];
+
+      final splits = VadChunkCalculator.calculateSplitPoints(
+        totalDurationSeconds: 120.0,
+        silenceIntervals: silences,
+        minChunkDurationSeconds: 40.0,
+        maxChunkDurationSeconds: 80.0,
+        targetChunkDurationSeconds: 60.0,
+      );
+
+      // 109.3 must be disqualified, cleanly cutting at 60.0s midpoint
+      expect(splits.length, 1);
+      expect(splits[0], 60.0);
+    });
+
     test('enforces 20MB hard cap failsafe check', () {
       expect(VadChunkCalculator.exceedsHardCap(15 * 1024 * 1024), false);
       expect(VadChunkCalculator.exceedsHardCap(20 * 1024 * 1024), false);

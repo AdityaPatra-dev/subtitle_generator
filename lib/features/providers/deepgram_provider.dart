@@ -55,6 +55,7 @@ class DeepgramNovaProvider implements BaseTranscriptionProvider {
     required String apiKey,
     String? sourceLanguage,
     String? prompt,
+    double? chunkDurationSeconds,
   }) async {
     final file = File(audioChunkPath);
     if (!await file.exists()) {
