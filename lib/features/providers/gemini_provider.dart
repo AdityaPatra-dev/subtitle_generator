@@ -11,8 +11,8 @@ class GeminiProvider implements BaseTranscriptionProvider {
             Dio(
               BaseOptions(
                 connectTimeout: const Duration(seconds: 15),
-                receiveTimeout: const Duration(seconds: 45),
-                sendTimeout: const Duration(seconds: 45),
+                receiveTimeout: const Duration(seconds: 65),
+                sendTimeout: const Duration(seconds: 60),
               ),
             );
 
@@ -234,8 +234,14 @@ class GeminiProvider implements BaseTranscriptionProvider {
               continue;
             }
           }
-          if (status == 404 || status == 503 || status == 400 || status == 500 || status == 429) {
-            // Switch immediately on 503 demand spike / 404 / 400 / 500, or after 429 cooldown
+          if (status == 404 ||
+              status == 503 ||
+              status == 400 ||
+              status == 500 ||
+              status == 429 ||
+              e.type == DioExceptionType.receiveTimeout ||
+              e.type == DioExceptionType.sendTimeout) {
+            // Switch immediately on 503 / timeout / 404 / 400 / 500, or after 429 cooldown
             break;
           }
           rethrow;

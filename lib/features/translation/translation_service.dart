@@ -35,7 +35,7 @@ class TranslationService {
             Dio(
               BaseOptions(
                 connectTimeout: const Duration(seconds: 15),
-                receiveTimeout: const Duration(seconds: 45),
+                receiveTimeout: const Duration(seconds: 60),
                 sendTimeout: const Duration(seconds: 30),
               ),
             );
@@ -85,9 +85,11 @@ RULES:
     if (modelType == TranslationModelType.groqLlama3370b && effectiveBatchSize > 25) {
       // Groq free tier has an 8,000 TPM limit; use smaller batches of 25 segments
       effectiveBatchSize = 25;
-    } else if (modelType == TranslationModelType.gemini25Flash && effectiveBatchSize < 150) {
-      // Gemini has 1M context; translate up to 150 segments in 1 request for blazing speed
-      effectiveBatchSize = 150;
+    } else if (modelType == TranslationModelType.gemini25Flash && effectiveBatchSize > 60) {
+      // Keep batches at <= 60 segments so each JSON response finishes in a few seconds without timing out
+      effectiveBatchSize = 60;
+    } else if (modelType == TranslationModelType.gemini25Flash && effectiveBatchSize < 60) {
+      effectiveBatchSize = 60;
     }
 
     for (int i = 0; i < segments.length; i += effectiveBatchSize) {
@@ -288,10 +290,20 @@ RULES:
       while (modelAttempts < 2) {
         modelAttempts++;
         try {
+          // Disable thinking for pure text translation on models that support it (much faster, avoids timeouts)
+          final genConfig = Map<String, dynamic>.from(payload['generationConfig'] as Map);
+          if (!model.contains('lite')) {
+            genConfig['thinkingConfig'] = {'thinkingBudget': 0};
+          }
+          final modelPayload = {
+            ...payload,
+            'generationConfig': genConfig,
+          };
+
           response = await _dio.post(
             'https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent',
             queryParameters: {'key': apiKey.trim()},
-            data: payload,
+            data: modelPayload,
             options: Options(
               headers: {
                 'Content-Type': 'application/json',
@@ -313,8 +325,13 @@ RULES:
               continue;
             }
           }
-          if (status == 404 || status == 503 || status == 400 || status == 429) {
-            // Switch immediately on 503 demand spike / 404 / 400, or after 429 cooldown
+          if (status == 404 ||
+              status == 503 ||
+              status == 400 ||
+              status == 429 ||
+              e.type == DioExceptionType.receiveTimeout ||
+              e.type == DioExceptionType.sendTimeout) {
+            // Switch immediately on 503 / timeout / 404 / 400, or after 429 cooldown
             break;
           }
           rethrow;
